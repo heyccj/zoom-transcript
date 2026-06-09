@@ -5,8 +5,42 @@
   }
   window.__ztLoaded = true;
 
+  // ─── Dedup helpers ───────────────────────────────────────────────────────
+  function makeKey(time, msg) {
+    return time + '|' + msg.slice(0, 40);
+  }
+
+  // Zoom emits progressive updates (partial line → full line) at the same timestamp.
+  function isProgressiveUpdate(prev, time, name, msg) {
+    if (prev.time !== time || prev.name !== name) return false;
+    return msg.indexOf(prev.msg) === 0 || prev.msg.indexOf(msg) === 0;
+  }
+
+  function dedupLog(entries) {
+    var result = [];
+    entries.forEach(function (e) {
+      var merged = false;
+      for (var j = result.length - 1; j >= 0; j--) {
+        var prev = result[j];
+        if (prev.time !== e.time || prev.name !== e.name) continue;
+        if (isProgressiveUpdate(prev, e.time, e.name, e.msg)) {
+          if (e.msg.length > prev.msg.length) prev.msg = e.msg;
+          merged = true;
+        }
+        break;
+      }
+      if (!merged) result.push({ key: e.key, time: e.time, name: e.name, msg: e.msg });
+    });
+    result.forEach(function (e) { e.key = makeKey(e.time, e.msg); });
+    return result;
+  }
+
   // ─── State ───────────────────────────────────────────────────────────────
-  var log = JSON.parse(localStorage.getItem('__ztLog') || '[]');
+  var rawLog = JSON.parse(localStorage.getItem('__ztLog') || '[]');
+  var log = dedupLog(rawLog);
+  if (log.length !== rawLog.length) {
+    localStorage.setItem('__ztLog', JSON.stringify(log));
+  }
   var seen = new Set(log.map(function (l) { return l.key; }));
   var observer = null;
   var containerCheckInterval = null;
@@ -81,20 +115,39 @@
     if (!timeEl || !msgEl) return null;
     var time = timeEl.innerText.trim();
     var msg = msgEl.innerText.trim();
-    var key = time + '|' + msg.slice(0, 40);
-    if (seen.has(key)) return null;
-    seen.add(key);
     var nameEl = item.querySelector('.lt-full-transcript__display-name');
     var name = nameEl ? nameEl.innerText.trim() : null;
-    return { key: key, time: time, name: name, msg: msg };
+
+    for (var i = log.length - 1; i >= 0; i--) {
+      var prev = log[i];
+      if (prev.time !== time || prev.name !== name) continue;
+      if (isProgressiveUpdate(prev, time, name, msg)) {
+        if (msg.length > prev.msg.length) {
+          seen.delete(prev.key);
+          prev.msg = msg;
+          prev.key = makeKey(time, msg);
+          seen.add(prev.key);
+          return { updated: true };
+        }
+        return null;
+      }
+      break;
+    }
+
+    var key = makeKey(time, msg);
+    if (seen.has(key)) return null;
+    seen.add(key);
+    return { key: key, time: time, name: name, msg: msg, updated: false };
   }
 
   function collect(container) {
     var added = 0;
     container.querySelectorAll('.lt-full-transcript__item').forEach(function (item) {
       var line = parseLine(item);
-      if (line) {
+      if (line && !line.updated) {
         log.push(line);
+        added++;
+      } else if (line && line.updated) {
         added++;
       }
     });
