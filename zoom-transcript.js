@@ -19,23 +19,54 @@
   function dedupLog(entries) {
     var result = [];
     entries.forEach(function (e) {
-      var merged = false;
+      var matchIdx = -1;
       for (var j = result.length - 1; j >= 0; j--) {
         var prev = result[j];
         if (prev.time !== e.time || prev.name !== e.name) continue;
         if (isProgressiveUpdate(prev, e.time, e.name, e.msg)) {
-          if (e.msg.length > prev.msg.length) prev.msg = e.msg;
-          merged = true;
+          matchIdx = j;
+          break;
         }
-        break;
       }
-      if (!merged) result.push({ key: e.key, time: e.time, name: e.name, msg: e.msg });
+      if (matchIdx >= 0) {
+        if (e.msg.length >= result[matchIdx].msg.length) {
+          result[matchIdx].msg = e.msg;
+        }
+      } else {
+        result.push({ key: e.key, time: e.time, name: e.name, msg: e.msg });
+      }
     });
     result.forEach(function (e) { e.key = makeKey(e.time, e.msg); });
     return result;
   }
 
+  function getMeetingId() {
+    var match = window.location.pathname.match(/\/wc\/(\d+)/) ||
+      window.location.pathname.match(/\/j\/(\d+)/);
+    return match ? match[1] : window.location.pathname + window.location.search;
+  }
+
+  function resetLog() {
+    if (collectTimer) {
+      clearTimeout(collectTimer);
+      collectTimer = null;
+    }
+    log = [];
+    seen = new Set();
+    lastCapturedTime = null;
+    localStorage.removeItem('__ztLog');
+  }
+
   // ─── State ───────────────────────────────────────────────────────────────
+  var SETTLE_MS = 5000;
+  var collectTimer = null;
+  var harvesting = false;
+  var meetingId = getMeetingId();
+  var storedMeetingId = localStorage.getItem('__ztMeetingId');
+  if (storedMeetingId && storedMeetingId !== meetingId) {
+    localStorage.removeItem('__ztLog');
+  }
+  localStorage.setItem('__ztMeetingId', meetingId);
   var rawLog = JSON.parse(localStorage.getItem('__ztLog') || '[]');
   var log = dedupLog(rawLog);
   if (log.length !== rawLog.length) {
@@ -109,59 +140,76 @@
   }
 
   // ─── Parse & collect ─────────────────────────────────────────────────────
-  function parseLine(item) {
+  function readLine(item) {
     var timeEl = item.querySelector('.lt-full-transcript__time');
     var msgEl = item.querySelector('.lt-full-transcript__message');
     if (!timeEl || !msgEl) return null;
     var time = timeEl.innerText.trim();
     var msg = msgEl.innerText.trim();
+    if (!msg) return null;
     var nameEl = item.querySelector('.lt-full-transcript__display-name');
     var name = nameEl ? nameEl.innerText.trim() : null;
-
-    for (var i = log.length - 1; i >= 0; i--) {
-      var prev = log[i];
-      if (prev.time !== time || prev.name !== name) continue;
-      if (isProgressiveUpdate(prev, time, name, msg)) {
-        if (msg.length > prev.msg.length) {
-          seen.delete(prev.key);
-          prev.msg = msg;
-          prev.key = makeKey(time, msg);
-          seen.add(prev.key);
-          return { updated: true };
-        }
-        return null;
-      }
-      break;
-    }
-
-    var key = makeKey(time, msg);
-    if (seen.has(key)) return null;
-    seen.add(key);
-    return { key: key, time: time, name: name, msg: msg, updated: false };
+    return { time: time, name: name, msg: msg };
   }
 
-  function collect(container) {
-    var added = 0;
-    container.querySelectorAll('.lt-full-transcript__item').forEach(function (item) {
-      var line = parseLine(item);
-      if (line && !line.updated) {
-        log.push(line);
-        added++;
-      } else if (line && line.updated) {
-        added++;
-      }
-    });
-    if (added > 0) {
+  function syncSeenFromLog() {
+    seen = new Set(log.map(function (l) { return l.key; }));
+  }
+
+  function persistLog() {
+    var before = log.length;
+    log = dedupLog(log);
+    syncSeenFromLog();
+    if (log.length !== before || log.length > 0) {
       lastCapturedTime = new Date().toLocaleTimeString();
       localStorage.setItem('__ztLog', JSON.stringify(log));
     }
     updateUI();
   }
 
+  function collectImmediate(container) {
+    var added = 0;
+    container.querySelectorAll('.lt-full-transcript__item').forEach(function (item) {
+      var line = readLine(item);
+      if (!line) return;
+      var key = makeKey(line.time, line.msg);
+      if (seen.has(key)) return;
+      seen.add(key);
+      log.push({
+        key: key,
+        time: line.time,
+        name: line.name,
+        msg: line.msg
+      });
+      added++;
+    });
+    return added;
+  }
+
+  function scheduleCollect(container) {
+    if (collectTimer) clearTimeout(collectTimer);
+    collectTimer = setTimeout(function () {
+      collectTimer = null;
+      if (!lastContainer) return;
+      collectImmediate(lastContainer);
+      persistLog();
+    }, SETTLE_MS);
+  }
+
+  function flushCollect() {
+    if (collectTimer) {
+      clearTimeout(collectTimer);
+      collectTimer = null;
+    }
+    if (lastContainer) collectImmediate(lastContainer);
+    persistLog();
+  }
+
   // ─── Scroll harvest ──────────────────────────────────────────────────────
   function scrollHarvest(container, done) {
     var inner = container.querySelector('.ReactVirtualized__Grid__innerScrollContainer');
     if (!inner) { if (done) done(); return; }
+    harvesting = true;
     var totalHeight = inner.scrollHeight;
     var step = 300;
     var pos = 0;
@@ -169,12 +217,19 @@
     status = 'Scanning transcript...';
     updateUI();
     function tick() {
-      collect(container);
+      collectImmediate(container);
       if (pos >= totalHeight) {
-        collect(container);
-        status = 'Recording live...';
+        collectImmediate(container);
+        status = 'Waiting for lines to settle...';
         updateUI();
-        if (done) done();
+        setTimeout(function () {
+          collectImmediate(container);
+          persistLog();
+          harvesting = false;
+          status = 'Recording live...';
+          updateUI();
+          if (done) done();
+        }, SETTLE_MS);
         return;
       }
       pos += step;
@@ -190,7 +245,7 @@
     lastContainer = container;
     scrollHarvest(container, function () {
       observer = new MutationObserver(function () {
-        collect(container);
+        if (!harvesting) scheduleCollect(container);
       });
       observer.observe(container, { childList: true, subtree: true });
       status = 'Recording live...';
@@ -236,6 +291,7 @@
 
   // ─── Format output ───────────────────────────────────────────────────────
   function formatOutput() {
+    flushCollect();
     var lastSpeaker = null;
     return log.map(function (e) {
       var line = '';
@@ -276,10 +332,7 @@
 
   document.getElementById('__zt-clear').onclick = function () {
     if (!confirm('Clear all captured transcript data?')) return;
-    log = [];
-    seen = new Set();
-    lastCapturedTime = null;
-    localStorage.removeItem('__ztLog');
+    resetLog();
     status = observer ? 'Recording live...' : 'Waiting for transcript panel...';
     updateUI();
   };
@@ -300,6 +353,8 @@
       a.href = 'data:text/plain;charset=utf-8,' + encodeURIComponent(text);
       a.download = 'transcript-' + new Date().toISOString().slice(0, 16).replace('T', '-') + '.txt';
       a.click();
+      resetLog();
+      localStorage.removeItem('__ztMeetingId');
     }
   });
   endObserver.observe(document.body, { childList: true, subtree: true });
