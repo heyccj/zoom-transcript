@@ -325,39 +325,24 @@
   var meetingExitClickHandler = null;
   var hostEndedObserver = null;
   var lastAutoDownloadAt = 0;
+  var speakerColorMap = {};
+  var speakerColorIdx = 0;
+  var SPEAKER_PALETTE = ['#7dd3fc', '#f9a8d4', '#fcd34d', '#86efac', '#c4b5fd', '#fb923c', '#67e8f9', '#f87171'];
 
-  function truncate(text, max) {
-    text = text || '';
-    return text.length > max ? text.slice(0, max - 1) + '…' : text;
-  }
-
-  function latestLine(lines) {
-    for (var i = lines.length - 1; i >= 0; i--) {
-      if (lines[i].msg) return lines[i];
+  function getSpeakerColor(name) {
+    if (!name) return '#9aa3af';
+    if (!speakerColorMap[name]) {
+      speakerColorMap[name] = SPEAKER_PALETTE[speakerColorIdx % SPEAKER_PALETTE.length];
+      speakerColorIdx++;
     }
-    return null;
-  }
-
-  function pendingCount(lines) {
-    var n = 0;
-    lines.forEach(function (line) {
-      if (!seen.has(makeKey(line.time, line.name, line.msg))) n++;
-    });
-    return n;
+    return speakerColorMap[name];
   }
 
   function displayStatus() {
     if (statusFlash && Date.now() < statusFlashUntil) return statusFlash;
 
     if (settleTimer && pendingLines && pendingLines.length) {
-      var latest = latestLine(pendingLines);
-      var pending = pendingCount(pendingLines);
-      var who = latest && latest.name ? latest.name : 'Speaker';
-      var bit = truncate(latest && latest.msg, 34);
-      if (pending > 1) {
-        return 'Reading (' + pending + ') — ' + who + ': ' + bit;
-      }
-      return 'Reading — ' + who + ': ' + bit;
+      return 'Capturing…';
     }
 
     return 'Listening…';
@@ -653,6 +638,9 @@
       '.__zt-caption-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 10px;',
       'background:rgba(0,0,0,0.72);border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#e8e8e8;font-size:11px}',
       '.__zt-caption-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;background:#555}',
+      '.__zt-caption-dot--rec{background:#ef4444 !important;box-shadow:0 0 8px rgba(239,68,68,0.8);',
+      'animation:__zt-rec-blink 1s ease-in-out infinite}',
+      '@keyframes __zt-rec-blink{0%,100%{opacity:1}50%{opacity:0.25}}',
       '.__zt-caption-status{flex:1;min-width:0;color:#ccc;line-height:1.35;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
       '.__zt-caption-meta{color:#fff;font-weight:700;white-space:nowrap;flex-shrink:0}',
       '.__zt-caption-actions{display:flex;gap:4px;flex-wrap:wrap;flex-shrink:0}',
@@ -664,7 +652,15 @@
       '.__zt-log-item{font-size:12px;line-height:1.4;color:#f3f3f3;margin-bottom:6px;word-wrap:break-word}',
       '.__zt-log-item:last-child{margin-bottom:0}',
       '.__zt-log-time{color:#9aa3af;font-size:10px;margin-right:6px}',
-      '.__zt-log-name{color:#7dd3fc;font-size:10px;font-weight:700;margin-right:6px}',
+      '.__zt-log-name{font-size:10px;font-weight:700;margin-right:6px}',
+      '[id="live-transcription-subtitle"] .live-transcription-subtitle__item{transition:color 0.4s ease}',
+      '[id="live-transcription-subtitle"].__zt-recorded .live-transcription-subtitle__item{color:#4ade80 !important}',
+      '.__zt-avatar-wrap{position:relative;display:inline-flex;flex-shrink:0}',
+      '.__zt-recorded-badge{position:absolute;top:-3px;right:-3px;width:14px;height:14px;border-radius:50%;',
+      'background:#22c55e;color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;',
+      'justify-content:center;line-height:1;pointer-events:none;z-index:1;',
+      'animation:__zt-badge-in 0.3s ease-out forwards}',
+      '@keyframes __zt-badge-in{from{opacity:0;transform:scale(0.4)}to{opacity:1;transform:scale(1)}}',
       '.__zt-caption-dock{position:fixed;left:50%;transform:translateX(-50%);bottom:68px;z-index:2147483646;',
       'width:' + CAPTION_PANEL_WIDTH + 'px;min-width:' + CAPTION_PANEL_WIDTH + 'px;max-width:' + CAPTION_PANEL_WIDTH + 'px;',
       'padding:8px 10px;pointer-events:auto;box-sizing:border-box;',
@@ -708,13 +704,6 @@
     });
   }
 
-  function onClearClick() {
-    if (!confirm('Clear all captured caption data?')) return;
-    resetLog();
-    status = store ? 'Connected — waiting for captions' : 'Waiting for Redux store...';
-    updateUI();
-  }
-
   function shutdown() {
     if (pollTimer) clearInterval(pollTimer);
     if (panelWatchTimer) clearInterval(panelWatchTimer);
@@ -734,6 +723,10 @@
     if (idle) idle.remove();
     var fallback = doc.getElementById('__zt-caption-fallback');
     if (fallback) fallback.remove();
+    var badges = doc.querySelectorAll('.__zt-recorded-badge');
+    for (var i = 0; i < badges.length; i++) badges[i].remove();
+    var recorded = doc.querySelectorAll('.__zt-recorded');
+    for (var j = 0; j < recorded.length; j++) recorded[j].classList.remove('__zt-recorded');
     var styles = doc.getElementById('__zt-caption-styles');
     if (styles) styles.remove();
     window.__ztCaptionLoaded = false;
@@ -753,7 +746,6 @@
         '<div class="__zt-caption-actions">',
           '<button id="__zt-caption-copy" type="button">Copy</button>',
           '<button id="__zt-caption-save" type="button">Download</button>',
-          '<button id="__zt-caption-clear" type="button">Clear</button>',
           '<button id="__zt-caption-close" type="button">Stop</button>',
         '</div>',
       '</div>',
@@ -762,17 +754,78 @@
 
     mount.querySelector('#__zt-caption-save').onclick = onSaveClick;
     mount.querySelector('#__zt-caption-copy').onclick = onCopyClick;
-    mount.querySelector('#__zt-caption-clear').onclick = onClearClick;
     mount.querySelector('#__zt-caption-close').onclick = shutdown;
 
     return mount;
   }
 
+  function getLiveSubtitleRows(doc) {
+    return doc.querySelectorAll('[id="live-transcription-subtitle"]');
+  }
+
   function hasLiveCaptionText(doc) {
-    var sub = doc.getElementById('live-transcription-subtitle');
-    if (!sub || sub.style.display === 'none') return false;
-    var line = sub.querySelector('.live-transcription-subtitle__item, .live-transcription-subtitle__yellowitem');
-    return !!(line && line.textContent && line.textContent.trim());
+    var rows = getLiveSubtitleRows(doc);
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i].style.display === 'none') continue;
+      var line = rows[i].querySelector('.live-transcription-subtitle__item, .live-transcription-subtitle__yellowitem');
+      if (line && line.textContent && line.textContent.trim()) return true;
+    }
+    return false;
+  }
+
+  function normalizeCaptionText(text) {
+    return String(text || '').replace(/\uFFFD/g, '').replace(/\s+/g, ' ').trim();
+  }
+
+  function isSubtitleRecorded(text) {
+    var norm = normalizeCaptionText(text);
+    if (!norm) return false;
+    for (var i = log.length - 1; i >= 0; i--) {
+      var msg = normalizeCaptionText(log[i].msg);
+      if (!msg) continue;
+      if (msg === norm || norm.indexOf(msg) === 0 || msg.indexOf(norm) === 0) return true;
+    }
+    return false;
+  }
+
+  function ensureRecordedBadge(doc, row) {
+    if (row.querySelector('.__zt-recorded-badge')) return;
+    var avatar = row.querySelector('.zmu-data-selector-item__icon');
+    if (!avatar) return;
+
+    var wrap = avatar.closest('.__zt-avatar-wrap');
+    if (!wrap) {
+      wrap = doc.createElement('span');
+      wrap.className = '__zt-avatar-wrap';
+      avatar.parentNode.insertBefore(wrap, avatar);
+      wrap.appendChild(avatar);
+    }
+
+    var badge = doc.createElement('span');
+    badge.className = '__zt-recorded-badge';
+    badge.setAttribute('aria-hidden', 'true');
+    badge.textContent = '✓';
+    wrap.appendChild(badge);
+  }
+
+  function markRecordedSubtitles(doc) {
+    var rows = getLiveSubtitleRows(doc);
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
+      var line = row.querySelector('.live-transcription-subtitle__item, .live-transcription-subtitle__yellowitem');
+      var text = line ? line.textContent : '';
+
+      if (isSubtitleRecorded(text)) {
+        if (!row.classList.contains('__zt-recorded')) {
+          row.classList.add('__zt-recorded');
+        }
+        ensureRecordedBadge(doc, row);
+      } else {
+        row.classList.remove('__zt-recorded');
+        var badge = row.querySelector('.__zt-recorded-badge');
+        if (badge) badge.remove();
+      }
+    }
   }
 
   function syncIdleLine(doc, container) {
@@ -800,9 +853,9 @@
     box.style.setProperty('visibility', 'visible', 'important');
     box.style.setProperty('opacity', '1', 'important');
 
-    var sub = box.querySelector('#live-transcription-subtitle');
-    if (sub) {
-      sub.style.setProperty('display', 'flex', 'important');
+    var rows = box.querySelectorAll('[id="live-transcription-subtitle"]');
+    for (var i = 0; i < rows.length; i++) {
+      rows[i].style.setProperty('display', 'flex', 'important');
     }
 
     var wrap = box.closest('.lt-subtitle-wrap');
@@ -829,21 +882,24 @@
   }
 
   function observeSubtitleVisibility(doc, box) {
-    var sub = box.querySelector('#live-transcription-subtitle');
-    if (!sub) return;
-    if (ui && ui.subObserver && ui.observedSub === sub) return;
+    if (ui && ui.subObserver && ui.observedSub === box) return;
 
     if (ui && ui.subObserver) ui.subObserver.disconnect();
     var obs = new MutationObserver(function () {
-      if (sub.style.display === 'none') {
-        sub.style.setProperty('display', 'flex', 'important');
+      var rows = box.querySelectorAll('[id="live-transcription-subtitle"]');
+      var needsFix = false;
+      for (var i = 0; i < rows.length; i++) {
+        if (rows[i].style.display === 'none') {
+          needsFix = true;
+          break;
+        }
       }
-      keepCaptionBoxVisible(doc, box);
+      if (needsFix) keepCaptionBoxVisible(doc, box);
     });
-    obs.observe(sub, { attributes: true, attributeFilter: ['style'] });
+    obs.observe(box, { attributes: true, attributeFilter: ['style'], subtree: true });
     if (!ui) ui = {};
     ui.subObserver = obs;
-    ui.observedSub = sub;
+    ui.observedSub = box;
   }
 
   function createFallback(doc) {
@@ -971,7 +1027,9 @@
       item.setAttribute('data-key', e.key);
       item.innerHTML =
         '<span class="__zt-log-time">' + escapeHtml(e.time || '—') + '</span>' +
-        (e.name ? '<span class="__zt-log-name">' + escapeHtml(e.name) + '</span>' : '') +
+        (e.name
+          ? '<span class="__zt-log-name" style="color:' + getSpeakerColor(e.name) + '">' + escapeHtml(e.name) + '</span>'
+          : '') +
         '<span class="__zt-log-msg">' + escapeHtml(e.msg) + '</span>';
       ui.logEl.appendChild(item);
     }
@@ -987,17 +1045,24 @@
     ui.statusEl.textContent = store ? displayStatus() : status;
 
     if (settleTimer && pendingLines && pendingLines.length) {
-      ui.dot.style.background = '#38bdf8';
-      ui.dot.style.boxShadow = '0 0 8px #38bdf8';
+      ui.dot.classList.add('__zt-caption-dot--rec');
+      ui.dot.style.background = '';
+      ui.dot.style.boxShadow = '';
     } else if (store) {
+      ui.dot.classList.remove('__zt-caption-dot--rec');
       ui.dot.style.background = '#22c55e';
       ui.dot.style.boxShadow = 'none';
     } else {
+      ui.dot.classList.remove('__zt-caption-dot--rec');
       ui.dot.style.background = '#f59e0b';
       ui.dot.style.boxShadow = 'none';
     }
 
     renderLogItems();
+
+    try {
+      markRecordedSubtitles(activeDoc());
+    } catch (e) { /* iframe not ready */ }
   }
 
   function formatOutput() {
@@ -1051,8 +1116,14 @@
     a.download = downloadFilename();
     a.click();
 
-    if (isAuto) lastAutoDownloadAt = Date.now();
-    console.info('[ZT Captions] Downloaded captions (' + reason + ').');
+    if (isAuto) {
+      lastAutoDownloadAt = Date.now();
+      resetLog();
+      localStorage.removeItem(meetingKey);
+      console.info('[ZT Captions] Downloaded captions (' + reason + ') — log cleared for next meeting.');
+    } else {
+      console.info('[ZT Captions] Downloaded captions (' + reason + ').');
+    }
     return true;
   }
 
@@ -1120,6 +1191,8 @@
     lastSnapshot = '';
     lastCapturedTime = null;
     renderedLogCount = 0;
+    speakerColorMap = {};
+    speakerColorIdx = 0;
     localStorage.removeItem(storageKey);
     if (ui && ui.logEl) ui.logEl.innerHTML = '';
     updateUI();
