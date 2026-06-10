@@ -715,7 +715,6 @@
       '.live-transcription-subtitle__box:has(.__zt-caption-mount){flex-wrap:wrap;align-items:stretch;',
       'width:' + CAPTION_PANEL_WIDTH + 'px !important;min-width:' + CAPTION_PANEL_WIDTH + 'px !important;',
       'max-width:' + CAPTION_PANEL_WIDTH + 'px !important;box-sizing:border-box !important}',
-      '.live-transcription-subtitle__box:has(.__zt-caption-mount) #live-transcription-subtitle{width:100%;max-width:100%}',
       '.__zt-caption-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 10px;',
       'background:rgba(0,0,0,0.72);border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#e8e8e8;font-size:11px}',
       '.__zt-caption-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;background:#555}',
@@ -735,14 +734,14 @@
       '.__zt-log-item--marker{color:#9aa3af;font-style:italic}',
       '.__zt-log-time{color:#9aa3af;font-size:10px;margin-right:6px}',
       '.__zt-log-name{font-size:10px;font-weight:700;margin-right:6px}',
-      '[id="live-transcription-subtitle"] .live-transcription-subtitle__item{transition:color 0.4s ease}',
-      '[id="live-transcription-subtitle"].__zt-recorded .live-transcription-subtitle__item{color:#4ade80 !important}',
-      '.__zt-avatar-wrap{position:relative;display:inline-flex;flex-shrink:0}',
-      '.__zt-recorded-badge{position:absolute;top:-3px;right:-3px;width:14px;height:14px;border-radius:50%;',
-      'background:#22c55e;color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;',
-      'justify-content:center;line-height:1;pointer-events:none;z-index:1;',
-      'animation:__zt-badge-in 0.3s ease-out forwards}',
-      '@keyframes __zt-badge-in{from{opacity:0;transform:scale(0.4)}to{opacity:1;transform:scale(1)}}',
+      '.live-transcription-subtitle__box:has(.__zt-caption-mount) ',
+      '[id="live-transcription-subtitle"]{display:none !important}',
+      '#__zt-live-overlay{display:flex;flex-direction:column;gap:2px;width:100%;box-sizing:border-box}',
+      '.__zt-live-row{display:flex;align-items:flex-start;gap:6px;padding:2px 0}',
+      '.__zt-live-avatar{display:inline-flex;flex-shrink:0}',
+      '.__zt-live-text{flex:1;min-width:0;line-height:1.4;word-wrap:break-word}',
+      '.__zt-w{color:#fff;transition:color 0.4s ease}',
+      '.__zt-w--rec{color:#4ade80}',
       '.__zt-caption-dock{position:fixed;left:50%;transform:translateX(-50%);bottom:68px;z-index:2147483646;',
       'width:' + CAPTION_PANEL_WIDTH + 'px;min-width:' + CAPTION_PANEL_WIDTH + 'px;max-width:' + CAPTION_PANEL_WIDTH + 'px;',
       'padding:8px 10px;pointer-events:auto;box-sizing:border-box;',
@@ -751,7 +750,6 @@
       'line-height:1.4;margin-bottom:6px;display:flex;align-items:center;min-height:24px}',
       '.live-transcription-subtitle__box:has(.__zt-caption-mount){display:flex !important;',
       'visibility:visible !important;opacity:1 !important}',
-      '.live-transcription-subtitle__box:has(.__zt-caption-mount) #live-transcription-subtitle{display:flex !important}',
       '.__zt-caption-fallback{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:2147483646;',
       'width:' + CAPTION_PANEL_WIDTH + 'px;pointer-events:auto}'
     ].join('');
@@ -793,7 +791,6 @@
     if (captionsEnableTimer) clearInterval(captionsEnableTimer);
     captionsEnableTimer = null;
     if (ui && ui.boxObserver) ui.boxObserver.disconnect();
-    if (ui && ui.subObserver) ui.subObserver.disconnect();
     if (captionDomObserver) captionDomObserver.disconnect();
     teardownAutoDownloadHooks();
     var doc = activeDoc();
@@ -805,10 +802,8 @@
     if (idle) idle.remove();
     var fallback = doc.getElementById('__zt-caption-fallback');
     if (fallback) fallback.remove();
-    var badges = doc.querySelectorAll('.__zt-recorded-badge');
-    for (var i = 0; i < badges.length; i++) badges[i].remove();
-    var recorded = doc.querySelectorAll('.__zt-recorded');
-    for (var j = 0; j < recorded.length; j++) recorded[j].classList.remove('__zt-recorded');
+    var overlay = doc.getElementById('__zt-live-overlay');
+    if (overlay) overlay.remove();
     var styles = doc.getElementById('__zt-caption-styles');
     if (styles) styles.remove();
     window.__ztCaptionLoaded = false;
@@ -848,7 +843,6 @@
   function hasLiveCaptionText(doc) {
     var rows = getLiveSubtitleRows(doc);
     for (var i = 0; i < rows.length; i++) {
-      if (rows[i].style.display === 'none') continue;
       var line = rows[i].querySelector('.live-transcription-subtitle__item, .live-transcription-subtitle__yellowitem');
       if (line && line.textContent && line.textContent.trim()) return true;
     }
@@ -859,55 +853,122 @@
     return String(text || '').replace(/\uFFFD/g, '').replace(/\s+/g, ' ').trim();
   }
 
-  function isSubtitleRecorded(text) {
-    var norm = normalizeCaptionText(text);
-    if (!norm) return false;
-    for (var i = log.length - 1; i >= 0; i--) {
-      var msg = normalizeCaptionText(log[i].msg);
-      if (!msg) continue;
-      if (msg === norm || norm.indexOf(msg) === 0 || msg.indexOf(norm) === 0) return true;
-    }
-    return false;
-  }
+  // Length of the leading portion of `norm` covered by saved log entries.
+  // Zoom may concatenate several utterances into one subtitle row, so keep
+  // consuming consecutive log entries against the remainder of the text.
+  function recordedPrefixLength(norm) {
+    if (!norm) return 0;
 
-  function ensureRecordedBadge(doc, row) {
-    if (row.querySelector('.__zt-recorded-badge')) return;
-    var avatar = row.querySelector('.zmu-data-selector-item__icon');
-    if (!avatar) return;
-
-    var wrap = avatar.closest('.__zt-avatar-wrap');
-    if (!wrap) {
-      wrap = doc.createElement('span');
-      wrap.className = '__zt-avatar-wrap';
-      avatar.parentNode.insertBefore(wrap, avatar);
-      wrap.appendChild(avatar);
+    var msgs = [];
+    for (var i = 0; i < log.length; i++) {
+      var m = normalizeCaptionText(log[i].msg);
+      if (m) msgs.push(m);
     }
 
-    var badge = doc.createElement('span');
-    badge.className = '__zt-recorded-badge';
-    badge.setAttribute('aria-hidden', 'true');
-    badge.textContent = '✓';
-    wrap.appendChild(badge);
-  }
+    var pos = 0;
+    var advanced = true;
+    while (advanced && pos < norm.length) {
+      advanced = false;
+      while (norm.charAt(pos) === ' ') pos++;
+      var rest = norm.slice(pos);
+      if (!rest) break;
 
-  function markRecordedSubtitles(doc) {
-    var rows = getLiveSubtitleRows(doc);
-    for (var i = 0; i < rows.length; i++) {
-      var row = rows[i];
-      var line = row.querySelector('.live-transcription-subtitle__item, .live-transcription-subtitle__yellowitem');
-      var text = line ? line.textContent : '';
+      var best = 0;
+      for (var j = msgs.length - 1; j >= 0; j--) {
+        var msg = msgs[j];
+        // Remainder is a prefix of a saved entry (log already holds a longer
+        // merged version) — everything visible is recorded.
+        if (rest.length <= msg.length && msg.indexOf(rest) === 0) return norm.length;
+        if (msg.length > best && rest.indexOf(msg) === 0) best = msg.length;
+      }
 
-      if (isSubtitleRecorded(text)) {
-        if (!row.classList.contains('__zt-recorded')) {
-          row.classList.add('__zt-recorded');
-        }
-        ensureRecordedBadge(doc, row);
-      } else {
-        row.classList.remove('__zt-recorded');
-        var badge = row.querySelector('.__zt-recorded-badge');
-        if (badge) badge.remove();
+      if (best > 0) {
+        pos += best;
+        advanced = true;
       }
     }
+    return pos;
+  }
+
+  // Number of leading words of `norm` that are recorded, snapped to a word boundary.
+  function recordedWordCount(norm, words) {
+    var n = recordedPrefixLength(norm);
+    if (n <= 0) return 0;
+    if (n >= norm.length) return words.length;
+    var cut = norm.charAt(n) === ' ' ? n : norm.lastIndexOf(' ', n);
+    if (cut <= 0) return 0;
+    return norm.slice(0, cut).split(' ').length;
+  }
+
+  function updateRowWords(doc, textWrap, words, recCount) {
+    while (textWrap.children.length > words.length) {
+      textWrap.removeChild(textWrap.lastChild);
+    }
+    for (var i = 0; i < words.length; i++) {
+      var s = textWrap.children[i];
+      if (!s) {
+        s = doc.createElement('span');
+        s.className = '__zt-w';
+        textWrap.appendChild(s);
+      }
+      var t = words[i] + ' ';
+      if (s.textContent !== t) s.textContent = t;
+      if (i < recCount) s.classList.add('__zt-w--rec');
+      else s.classList.remove('__zt-w--rec');
+    }
+  }
+
+  function renderLiveOverlay(doc) {
+    var box = findCaptionBox(doc);
+    if (!box) return;
+
+    var ov = box.querySelector('#__zt-live-overlay');
+    if (!ov) {
+      ov = doc.createElement('div');
+      ov.id = '__zt-live-overlay';
+      box.appendChild(ov);
+    }
+
+    var rows = box.querySelectorAll('[id="live-transcription-subtitle"]');
+    var used = 0;
+
+    for (var i = 0; i < rows.length; i++) {
+      var native = rows[i];
+      var line = native.querySelector('.live-transcription-subtitle__item, .live-transcription-subtitle__yellowitem');
+      var norm = normalizeCaptionText(line ? line.textContent : '');
+      if (!norm) continue;
+
+      var reps = ov.querySelectorAll('.__zt-live-row');
+      var rep = reps[used];
+      if (!rep) {
+        rep = doc.createElement('div');
+        rep.className = '__zt-live-row';
+        rep.innerHTML = '<span class="__zt-live-avatar"></span><span class="__zt-live-text"></span>';
+        ov.appendChild(rep);
+      }
+      used++;
+
+      var avatarHolder = rep.querySelector('.__zt-live-avatar');
+      var nativeAvatar = native.querySelector('.zmu-data-selector-item__icon');
+      var avatarKey = nativeAvatar
+        ? (nativeAvatar.tagName === 'IMG' ? nativeAvatar.getAttribute('src') : nativeAvatar.outerHTML)
+        : '';
+      if (rep.getAttribute('data-avatar') !== avatarKey) {
+        rep.setAttribute('data-avatar', avatarKey);
+        avatarHolder.innerHTML = '';
+        if (nativeAvatar) avatarHolder.appendChild(nativeAvatar.cloneNode(true));
+      }
+
+      var words = norm.split(' ');
+      updateRowWords(doc, rep.querySelector('.__zt-live-text'), words, recordedWordCount(norm, words));
+    }
+
+    var allReps = ov.querySelectorAll('.__zt-live-row');
+    for (var j = allReps.length - 1; j >= used; j--) {
+      allReps[j].remove();
+    }
+
+    syncIdleLine(doc, ov);
   }
 
   function syncIdleLine(doc, container) {
@@ -935,19 +996,12 @@
     box.style.setProperty('visibility', 'visible', 'important');
     box.style.setProperty('opacity', '1', 'important');
 
-    var rows = box.querySelectorAll('[id="live-transcription-subtitle"]');
-    for (var i = 0; i < rows.length; i++) {
-      rows[i].style.setProperty('display', 'flex', 'important');
-    }
-
     var wrap = box.closest('.lt-subtitle-wrap');
     if (wrap) {
       lockPanelWidth(wrap);
       wrap.style.setProperty('display', 'block', 'important');
       wrap.style.setProperty('visibility', 'visible', 'important');
     }
-
-    syncIdleLine(doc, box);
   }
 
   function ensurePinDock(doc) {
@@ -961,27 +1015,6 @@
     }
     lockPanelWidth(dock);
     return dock;
-  }
-
-  function observeSubtitleVisibility(doc, box) {
-    if (ui && ui.subObserver && ui.observedSub === box) return;
-
-    if (ui && ui.subObserver) ui.subObserver.disconnect();
-    var obs = new MutationObserver(function () {
-      var rows = box.querySelectorAll('[id="live-transcription-subtitle"]');
-      var needsFix = false;
-      for (var i = 0; i < rows.length; i++) {
-        if (rows[i].style.display === 'none') {
-          needsFix = true;
-          break;
-        }
-      }
-      if (needsFix) keepCaptionBoxVisible(doc, box);
-    });
-    obs.observe(box, { attributes: true, attributeFilter: ['style'], subtree: true });
-    if (!ui) ui = {};
-    ui.subObserver = obs;
-    ui.observedSub = box;
   }
 
   function createFallback(doc) {
@@ -1033,7 +1066,6 @@
     if (box) {
       keepCaptionBoxVisible(doc, box);
       observeCaptionBox(doc, box);
-      observeSubtitleVisibility(doc, box);
       if (mount.parentElement !== box) box.appendChild(mount);
       dock.style.display = 'none';
       uiMountedHost = box;
@@ -1087,6 +1119,9 @@
     tryShowCaptions(doc);
     startCaptionsAutoEnable(doc);
     attachMount(doc);
+    try {
+      renderLiveOverlay(doc);
+    } catch (e) { /* ignore */ }
 
     if (ui && ui.statusEl && !store) {
       ui.statusEl.textContent = status;
@@ -1150,10 +1185,6 @@
     }
 
     renderLogItems();
-
-    try {
-      markRecordedSubtitles(activeDoc());
-    } catch (e) { /* iframe not ready */ }
   }
 
   function formatOutput() {
