@@ -42,7 +42,8 @@
           time: e.time,
           name: e.name,
           msg: e.msg,
-          src: e.src
+          src: e.src,
+          marker: e.marker
         });
       }
     });
@@ -172,6 +173,29 @@
         var id = a.userId != null ? a.userId : a.zoomID;
         var name = a.displayName || a.name;
         if (id != null && name) map[id] = name;
+      });
+    });
+
+    return map;
+  }
+
+  function activeSharerMap(state) {
+    var map = {};
+    var lists = [];
+
+    if (state.attendeesList && state.attendeesList.attendeesList) {
+      lists.push(state.attendeesList.attendeesList);
+    }
+    if (state.attendeesList && Array.isArray(state.attendeesList.list)) {
+      lists.push(state.attendeesList.list);
+    }
+
+    lists.forEach(function (list) {
+      list.forEach(function (a) {
+        if (!a || !a.sharerOn) return;
+        var id = a.userId != null ? a.userId : a.zoomID;
+        if (id == null) return;
+        map[id] = a.displayName || a.name || 'Someone';
       });
     });
 
@@ -338,11 +362,20 @@
     return speakerColorMap[name];
   }
 
+  function latestPendingSpeaker() {
+    if (!pendingLines) return null;
+    for (var i = pendingLines.length - 1; i >= 0; i--) {
+      if (pendingLines[i].msg && pendingLines[i].name) return pendingLines[i].name;
+    }
+    return null;
+  }
+
   function displayStatus() {
     if (statusFlash && Date.now() < statusFlashUntil) return statusFlash;
 
     if (settleTimer && pendingLines && pendingLines.length) {
-      return 'Capturing…';
+      var who = latestPendingSpeaker();
+      return who ? 'Recording — ' + who : 'Recording…';
     }
 
     return 'Listening…';
@@ -378,6 +411,52 @@
       });
     });
     return added;
+  }
+
+  var prevSharers = null;
+
+  function addShareMarker(text) {
+    var time = new Date().toLocaleTimeString();
+    var msg = '— ' + text + ' —';
+    var key = makeKey(time, null, msg);
+    if (seen.has(key)) return;
+    seen.add(key);
+    log.push({
+      key: key,
+      time: time,
+      name: null,
+      msg: msg,
+      src: 'share-event',
+      marker: true
+    });
+    persistLog();
+  }
+
+  function trackShareEvents(state) {
+    var cur;
+    try {
+      cur = activeSharerMap(state);
+    } catch (e) {
+      return;
+    }
+
+    if (prevSharers === null) {
+      prevSharers = cur;
+      return;
+    }
+
+    Object.keys(cur).forEach(function (id) {
+      if (!(id in prevSharers)) {
+        addShareMarker(cur[id] + ' started sharing their screen');
+      }
+    });
+    Object.keys(prevSharers).forEach(function (id) {
+      if (!(id in cur)) {
+        addShareMarker((prevSharers[id] || 'Someone') + ' stopped sharing');
+      }
+    });
+
+    prevSharers = cur;
   }
 
   function tryInjectIntoIframe(source) {
@@ -434,6 +513,8 @@
       updateUI();
       return;
     }
+
+    trackShareEvents(state);
 
     var lines = extractLines(state);
     var snapshot = JSON.stringify(lines.map(function (l) {
@@ -651,6 +732,7 @@
       'background:rgba(0,0,0,0.55);border:1px solid rgba(255,255,255,0.08);border-radius:8px;width:100%;box-sizing:border-box}',
       '.__zt-log-item{font-size:12px;line-height:1.4;color:#f3f3f3;margin-bottom:6px;word-wrap:break-word}',
       '.__zt-log-item:last-child{margin-bottom:0}',
+      '.__zt-log-item--marker{color:#9aa3af;font-style:italic}',
       '.__zt-log-time{color:#9aa3af;font-size:10px;margin-right:6px}',
       '.__zt-log-name{font-size:10px;font-weight:700;margin-right:6px}',
       '[id="live-transcription-subtitle"] .live-transcription-subtitle__item{transition:color 0.4s ease}',
@@ -1023,7 +1105,7 @@
     for (var i = renderedLogCount; i < log.length; i++) {
       var e = log[i];
       var item = ui.logEl.ownerDocument.createElement('div');
-      item.className = '__zt-log-item';
+      item.className = '__zt-log-item' + (e.marker ? ' __zt-log-item--marker' : '');
       item.setAttribute('data-key', e.key);
       item.innerHTML =
         '<span class="__zt-log-time">' + escapeHtml(e.time || '—') + '</span>' +
@@ -1043,6 +1125,15 @@
 
     ui.countEl.textContent = log.length + ' saved';
     ui.statusEl.textContent = store ? displayStatus() : status;
+
+    if (store && settleTimer && pendingLines && pendingLines.length &&
+        !(statusFlash && Date.now() < statusFlashUntil)) {
+      var who = latestPendingSpeaker();
+      if (who) {
+        ui.statusEl.innerHTML = 'Recording — <span style="color:' +
+          getSpeakerColor(who) + ';font-weight:700">' + escapeHtml(who) + '</span>';
+      }
+    }
 
     if (settleTimer && pendingLines && pendingLines.length) {
       ui.dot.classList.add('__zt-caption-dot--rec');
@@ -1193,6 +1284,7 @@
     renderedLogCount = 0;
     speakerColorMap = {};
     speakerColorIdx = 0;
+    prevSharers = null;
     localStorage.removeItem(storageKey);
     if (ui && ui.logEl) ui.logEl.innerHTML = '';
     updateUI();
