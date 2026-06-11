@@ -328,6 +328,9 @@
   const sessionKey = '__ztCaptionSession';
   const darkKey = '__ztCaptionDark';
   const collapsedKey = '__ztCaptionCollapsed';
+  const widthKey = '__ztCaptionWidth';
+  const MIN_PANEL_WIDTH = 320;
+  const MAX_PANEL_WIDTH = 900;
 
   if (localStorage.getItem(meetingKey) !== meetingId) {
     localStorage.removeItem(storageKey);
@@ -369,6 +372,11 @@
   let elapsedTimer = null;
   let speakerStats = {};
   let searchQuery = '';
+  let panelWidth = (function () {
+    let w = parseInt(localStorage.getItem(widthKey), 10);
+    if (isNaN(w)) return CAPTION_PANEL_WIDTH;
+    return Math.max(MIN_PANEL_WIDTH, Math.min(MAX_PANEL_WIDTH, w));
+  })();
 
   const SPEAKER_PALETTE_DARK = ['#7dd3fc', '#f9a8d4', '#fcd34d', '#86efac', '#c4b5fd', '#fb923c', '#67e8f9', '#f87171'];
   const SPEAKER_PALETTE_LIGHT = ['#0284c7', '#be185d', '#b45309', '#15803d', '#7c3aed', '#c2410c', '#0891b2', '#b91c1c'];
@@ -588,10 +596,22 @@
 
   function lockPanelWidth(el) {
     if (!el) return;
-    el.style.setProperty('width', CAPTION_PANEL_WIDTH + 'px', 'important');
-    el.style.setProperty('min-width', CAPTION_PANEL_WIDTH + 'px', 'important');
-    el.style.setProperty('max-width', CAPTION_PANEL_WIDTH + 'px', 'important');
+    el.style.setProperty('width', panelWidth + 'px', 'important');
+    el.style.setProperty('min-width', panelWidth + 'px', 'important');
+    el.style.setProperty('max-width', panelWidth + 'px', 'important');
     el.style.setProperty('box-sizing', 'border-box', 'important');
+  }
+
+  function applyPanelWidth(doc) {
+    doc.documentElement.style.setProperty('--zt-panel-width', panelWidth + 'px');
+    let box = findCaptionBox(doc);
+    if (box) {
+      lockPanelWidth(box);
+      let wrap = box.closest('.lt-subtitle-wrap');
+      if (wrap) lockPanelWidth(wrap);
+    }
+    let dock = doc.getElementById('__zt-caption-dock');
+    if (dock) lockPanelWidth(dock);
   }
 
   function findShowCaptionsButton(doc) {
@@ -727,7 +747,7 @@
     style.id = '__zt-caption-styles';
     style.textContent = `
       :root {
-        --zt-panel-width: ${CAPTION_PANEL_WIDTH}px;
+        --zt-panel-width: ${panelWidth}px;
 
         --zt-widget-bg:           rgba(255,255,255,0.97);
         --zt-widget-border:       rgba(0,0,0,0.09);
@@ -866,6 +886,7 @@
 
       /* ── Mount + structural ── */
       .__zt-caption-mount {
+        position: relative;
         display: block;
         width: 100%;
         flex: 0 0 auto;
@@ -882,6 +903,24 @@
         transition: background 0.2s, border-color 0.2s;
       }
       .__zt-caption-mount *, .__zt-pill * { box-sizing: border-box; }
+      .__zt-caption-mount input {
+        user-select: text !important;
+        -webkit-user-select: text !important;
+        pointer-events: auto !important;
+      }
+      .__zt-resize-handle {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        right: -3px;
+        width: 8px;
+        cursor: ew-resize;
+        border-radius: 4px;
+        z-index: 1;
+        transition: background 0.15s;
+      }
+      .__zt-resize-handle:hover,
+      .__zt-resize-handle.active { background: var(--zt-icon-btn-active-border); }
       .live-transcription-subtitle__box:has(.__zt-caption-mount) {
         flex-wrap: wrap;
         align-items: stretch;
@@ -1372,8 +1411,22 @@
       let el = doc.getElementById(id);
       if (el) el.remove();
     });
+    doc.documentElement.style.removeProperty('--zt-panel-width');
     window.__ztCaptionLoaded = false;
     delete window.__ztCaption;
+  }
+
+  // Zoom's caption box is a react-draggable with global hotkeys on the
+  // document: without this, mousedown on our inputs starts a drag instead of
+  // focusing, and keystrokes trigger Zoom shortcuts. Inner handlers still run
+  // (they're on descendants, which fire before bubbling reaches the shield),
+  // and document-level capture listeners (dropdown close, auto-download) are
+  // unaffected.
+  function shieldWidgetEvents(el) {
+    ['mousedown', 'mouseup', 'click', 'dblclick', 'pointerdown', 'pointerup',
+      'touchstart', 'keydown', 'keypress', 'keyup'].forEach(function (type) {
+      el.addEventListener(type, function (e) { e.stopPropagation(); });
+    });
   }
 
   function createMount(doc) {
@@ -1488,6 +1541,33 @@
       downloadJson();
     };
 
+    // Right-edge drag handle to resize the panel width.
+    let handle = doc.createElement('div');
+    handle.className = '__zt-resize-handle';
+    handle.title = 'Drag to resize';
+    mount.appendChild(handle);
+    handle.addEventListener('mousedown', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      let startX = e.clientX;
+      let startW = panelWidth;
+      handle.classList.add('active');
+      function onMove(ev) {
+        ev.preventDefault();
+        panelWidth = Math.max(MIN_PANEL_WIDTH, Math.min(MAX_PANEL_WIDTH, startW + (ev.clientX - startX)));
+        applyPanelWidth(doc);
+      }
+      function onUp() {
+        doc.removeEventListener('mousemove', onMove, true);
+        doc.removeEventListener('mouseup', onUp, true);
+        handle.classList.remove('active');
+        localStorage.setItem(widthKey, String(panelWidth));
+      }
+      doc.addEventListener('mousemove', onMove, true);
+      doc.addEventListener('mouseup', onUp, true);
+    });
+
+    shieldWidgetEvents(mount);
     return mount;
   }
 
@@ -1511,6 +1591,7 @@
     ].join('');
 
     pill.onclick = function () { setCollapsed(false); };
+    shieldWidgetEvents(pill);
     return pill;
   }
 
