@@ -5,10 +5,13 @@
   }
   window.__ztCaptionLoaded = true;
 
-  var POLL_MS = 800;
-  var SETTLE_MS = 3000;
-  var CAPTION_PANEL_WIDTH = 500;
-  var injectAttempted = false;
+  const POLL_MS = 800;
+  const SETTLE_MS = 3000;
+  const CAPTION_PANEL_WIDTH = 500;
+  const MAX_INJECT_RETRIES = 40;
+  let injectAttempted = false;
+  let pendingInjectSource = null;
+  let injectRetries = 0;
 
   // ─── Dedup ───────────────────────────────────────────────────────────────
   function makeKey(time, name, msg) {
@@ -21,11 +24,11 @@
   }
 
   function dedupLog(entries) {
-    var result = [];
+    let result = [];
     entries.forEach(function (e) {
-      var matchIdx = -1;
-      for (var j = result.length - 1; j >= 0; j--) {
-        var prev = result[j];
+      let matchIdx = -1;
+      for (let j = result.length - 1; j >= 0; j--) {
+        let prev = result[j];
         if (prev.time !== e.time || prev.name !== e.name) continue;
         if (isProgressiveUpdate(prev, e.time, e.name, e.msg)) {
           matchIdx = j;
@@ -55,8 +58,8 @@
 
   function getMeetingId(win) {
     try {
-      var path = win.location.pathname;
-      var match = path.match(/\/wc\/(\d+)/) || path.match(/\/j\/(\d+)/);
+      let path = win.location.pathname;
+      let match = path.match(/\/wc\/(\d+)/) || path.match(/\/j\/(\d+)/);
       return match ? match[1] : path + win.location.search;
     } catch (e) {
       return 'unknown';
@@ -77,7 +80,7 @@
   function getWebclientWindow() {
     if (isMeetingDoc(document)) return window;
 
-    var iframe = document.getElementById('webclient');
+    let iframe = document.getElementById('webclient');
     if (iframe && iframe.contentWindow) {
       try {
         if (iframe.contentDocument && iframe.contentDocument.body) {
@@ -103,13 +106,13 @@
     if (!fiber || seen.has(fiber)) return null;
     seen.add(fiber);
 
-    var props = fiber.memoizedProps;
+    let props = fiber.memoizedProps;
     if (props) {
       if (looksLikeStore(props.store)) return props.store;
       if (props.value && looksLikeStore(props.value.store)) return props.value.store;
     }
 
-    var state = fiber.memoizedState;
+    let state = fiber.memoizedState;
     while (state) {
       if (looksLikeStore(state.memoizedState)) return state.memoizedState;
       if (state.queue && looksLikeStore(state.queue.lastRenderedState)) {
@@ -126,79 +129,71 @@
 
   function collectFibers(node, out, limit) {
     if (!node || out.length >= limit) return;
-    var keys = Object.keys(node);
-    for (var i = 0; i < keys.length; i++) {
-      var k = keys[i];
+    let keys = Object.keys(node);
+    for (let i = 0; i < keys.length; i++) {
+      let k = keys[i];
       if (k.indexOf('__reactFiber$') === 0 || k.indexOf('__reactContainer$') === 0) {
         out.push(node[k]);
       }
     }
-    for (var c = node.firstChild; c; c = c.nextSibling) {
+    for (let c = node.firstChild; c; c = c.nextSibling) {
       collectFibers(c, out, limit);
     }
   }
 
   function findReduxStore(doc) {
-    var roots = [
+    let roots = [
       doc.getElementById('zmmtg-root'),
       doc.getElementById('root'),
       doc.getElementById('wc-container'),
       doc.body
     ].filter(Boolean);
 
-    var fibers = [];
+    let fibers = [];
     roots.forEach(function (root) { collectFibers(root, fibers, 40); });
 
-    for (var i = 0; i < fibers.length; i++) {
-      var store = storeFromFiber(fibers[i], new Set());
+    for (let i = 0; i < fibers.length; i++) {
+      let store = storeFromFiber(fibers[i], new Set());
       if (store) return store;
     }
     return null;
   }
 
-  function attendeeNameMap(state) {
-    var map = {};
-    var lists = [];
-
+  function attendeeLists(state) {
+    let lists = [];
     if (state.attendeesList && state.attendeesList.attendeesList) {
       lists.push(state.attendeesList.attendeesList);
     }
     if (state.attendeesList && Array.isArray(state.attendeesList.list)) {
       lists.push(state.attendeesList.list);
     }
+    return lists;
+  }
 
-    lists.forEach(function (list) {
+  function eachAttendee(state, fn) {
+    attendeeLists(state).forEach(function (list) {
       list.forEach(function (a) {
         if (!a) return;
-        var id = a.userId != null ? a.userId : a.zoomID;
-        var name = a.displayName || a.name;
-        if (id != null && name) map[id] = name;
+        fn(a, a.userId != null ? a.userId : a.zoomID);
       });
     });
+  }
 
+  function attendeeNameMap(state) {
+    let map = {};
+    eachAttendee(state, function (a, id) {
+      let name = a.displayName || a.name;
+      if (id != null && name) map[id] = name;
+    });
     return map;
   }
 
   function activeSharerMap(state) {
-    var map = {};
-    var lists = [];
-
-    if (state.attendeesList && state.attendeesList.attendeesList) {
-      lists.push(state.attendeesList.attendeesList);
-    }
-    if (state.attendeesList && Array.isArray(state.attendeesList.list)) {
-      lists.push(state.attendeesList.list);
-    }
-
-    lists.forEach(function (list) {
-      list.forEach(function (a) {
-        if (!a || !a.sharerOn) return;
-        var id = a.userId != null ? a.userId : a.zoomID;
-        if (id == null) return;
-        map[id] = a.displayName || a.name || 'Someone';
-      });
+    let map = {};
+    eachAttendee(state, function (a, id) {
+      if (!a.sharerOn || id == null) return;
+      map[id] = a.displayName || a.name || 'Someone';
     });
-
     return map;
   }
 
@@ -217,7 +212,7 @@
   }
 
   function ltBuckets(state) {
-    var buckets = [];
+    let buckets = [];
     if (state.liveTranscription) buckets.push(state.liveTranscription);
     if (state.newLiveTranscription && state.newLiveTranscription !== state.liveTranscription) {
       buckets.push(state.newLiveTranscription);
@@ -226,17 +221,17 @@
   }
 
   function linesFromAllMessages(state, names) {
-    var rows = [];
+    let rows = [];
 
     ltBuckets(state).forEach(function (lt) {
       if (!lt || !lt.allMessages) return;
-      var order = Array.isArray(lt.messagesOrder) ? lt.messagesOrder.slice() : [];
-      var ids = order.length ? order : Object.keys(lt.allMessages);
+      let order = Array.isArray(lt.messagesOrder) ? lt.messagesOrder.slice() : [];
+      let ids = order.length ? order : Object.keys(lt.allMessages);
 
       ids.forEach(function (id) {
-        var msg = lt.allMessages[id];
+        let msg = lt.allMessages[id];
         if (!msg) return;
-        var text = normalizeText(msg.message || msg.decryptedMessage || msg.text);
+        let text = normalizeText(msg.message || msg.decryptedMessage || msg.text);
         if (!text) return;
         rows.push({
           time: msg.messageTime || '',
@@ -252,13 +247,13 @@
   }
 
   function linesFromNewLTMessage(state, names) {
-    var rows = [];
+    let rows = [];
 
     ltBuckets(state).forEach(function (lt) {
       if (!lt || !lt.newLTMessage) return;
       Object.keys(lt.newLTMessage).forEach(function (id) {
-        var msg = lt.newLTMessage[id];
-        var text = normalizeText(msg.text || msg.message);
+        let msg = lt.newLTMessage[id];
+        let text = normalizeText(msg.text || msg.message);
         if (!text) return;
         rows.push({
           time: msg.messageTime || '',
@@ -274,7 +269,7 @@
   }
 
   function linesFromMessageLatest(state) {
-    var text = normalizeText(state.meeting && state.meeting.messageLatest);
+    let text = normalizeText(state.meeting && state.meeting.messageLatest);
     if (!text) return [];
     return [{
       time: new Date().toLocaleTimeString(),
@@ -286,18 +281,18 @@
   }
 
   function extractLines(state) {
-    var names = attendeeNameMap(state);
-    var fromAll = linesFromAllMessages(state, names);
+    let names = attendeeNameMap(state);
+    let fromAll = linesFromAllMessages(state, names);
     if (fromAll.length) return fromAll;
 
-    var fromNew = linesFromNewLTMessage(state, names);
+    let fromNew = linesFromNewLTMessage(state, names);
     if (fromNew.length) return fromNew;
 
     return linesFromMessageLatest(state);
   }
 
   function probeState(state) {
-    var lt = ltBuckets(state);
+    let lt = ltBuckets(state);
     return {
       attendeeCount: Object.keys(attendeeNameMap(state)).length,
       liveTranscriptionKeys: lt.map(function (b) {
@@ -314,44 +309,44 @@
   }
 
   // ─── State ───────────────────────────────────────────────────────────────
-  var wcWin = getWebclientWindow();
-  var meetingId = getMeetingId(wcWin);
-  var storageKey = '__ztCaptionLog';
-  var meetingKey = '__ztCaptionMeetingId';
+  let wcWin = getWebclientWindow();
+  const meetingId = getMeetingId(wcWin);
+  const storageKey = '__ztCaptionLog';
+  const meetingKey = '__ztCaptionMeetingId';
 
   if (localStorage.getItem(meetingKey) !== meetingId) {
     localStorage.removeItem(storageKey);
   }
   localStorage.setItem(meetingKey, meetingId);
 
-  var log = dedupLog(JSON.parse(localStorage.getItem(storageKey) || '[]'));
-  var seen = new Set(log.map(function (l) { return l.key; }));
-  var store = null;
-  var pollTimer = null;
-  var settleTimer = null;
-  var lastCapturedTime = null;
-  var status = 'Looking for Redux store...';
-  var lastSnapshot = '';
-  var pollCount = 0;
-  var pendingLines = null;
-  var statusFlash = '';
-  var statusFlashUntil = 0;
-  var uiMountedHost = null;
-  var openCaptionAttemptAt = 0;
-  var captionsEnableTimer = null;
-  var captionsEnabledOnce = false;
-  var langModalSaveAt = 0;
-  var panelWatchTimer = null;
-  var renderedLogCount = 0;
-  var ui = null;
-  var captionDomObserver = null;
-  var autoDownloadDoc = null;
-  var meetingExitClickHandler = null;
-  var hostEndedObserver = null;
-  var lastAutoDownloadAt = 0;
-  var speakerColorMap = {};
-  var speakerColorIdx = 0;
-  var SPEAKER_PALETTE = ['#7dd3fc', '#f9a8d4', '#fcd34d', '#86efac', '#c4b5fd', '#fb923c', '#67e8f9', '#f87171'];
+  let log = dedupLog(JSON.parse(localStorage.getItem(storageKey) || '[]'));
+  let seen = new Set(log.map(function (l) { return l.key; }));
+  let store = null;
+  let pollTimer = null;
+  let settleTimer = null;
+  let status = 'Looking for Redux store...';
+  let lastSnapshot = '';
+  let pollCount = 0;
+  let pendingLines = null;
+  let statusFlash = '';
+  let statusFlashUntil = 0;
+  let uiMountedHost = null;
+  let openCaptionAttemptAt = 0;
+  let captionsEnableTimer = null;
+  let captionsEnabledOnce = false;
+  let langModalSaveAt = 0;
+  let renderedLogCount = 0;
+  let ui = null;
+  let attachBoxLogged = false;
+  let attachDockLogged = false;
+  let captionDomObserver = null;
+  let autoDownloadDoc = null;
+  let meetingExitClickHandler = null;
+  let hostEndedObserver = null;
+  let lastAutoDownloadAt = 0;
+  let speakerColorMap = {};
+  let speakerColorIdx = 0;
+  const SPEAKER_PALETTE = ['#7dd3fc', '#f9a8d4', '#fcd34d', '#86efac', '#c4b5fd', '#fb923c', '#67e8f9', '#f87171'];
 
   function getSpeakerColor(name) {
     if (!name) return '#9aa3af';
@@ -364,7 +359,7 @@
 
   function latestPendingSpeaker() {
     if (!pendingLines) return null;
-    for (var i = pendingLines.length - 1; i >= 0; i--) {
+    for (let i = pendingLines.length - 1; i >= 0; i--) {
       if (pendingLines[i].msg && pendingLines[i].name) return pendingLines[i].name;
     }
     return null;
@@ -374,7 +369,7 @@
     if (statusFlash && Date.now() < statusFlashUntil) return statusFlash;
 
     if (settleTimer && pendingLines && pendingLines.length) {
-      var who = latestPendingSpeaker();
+      let who = latestPendingSpeaker();
       return who ? 'Recording — ' + who : 'Recording…';
     }
 
@@ -389,16 +384,15 @@
     log = dedupLog(log);
     syncSeenFromLog();
     if (log.length) {
-      lastCapturedTime = new Date().toLocaleTimeString();
       localStorage.setItem(storageKey, JSON.stringify(log));
     }
     updateUI();
   }
 
   function ingestLines(lines) {
-    var added = 0;
+    let added = 0;
     lines.forEach(function (line) {
-      var key = makeKey(line.time, line.name, line.msg);
+      let key = makeKey(line.time, line.name, line.msg);
       if (seen.has(key)) return;
       seen.add(key);
       added++;
@@ -413,12 +407,12 @@
     return added;
   }
 
-  var prevSharers = null;
+  let prevSharers = null;
 
   function addShareMarker(text) {
-    var time = new Date().toLocaleTimeString();
-    var msg = '— ' + text + ' —';
-    var key = makeKey(time, null, msg);
+    let time = new Date().toLocaleTimeString();
+    let msg = '— ' + text + ' —';
+    let key = makeKey(time, null, msg);
     if (seen.has(key)) return;
     seen.add(key);
     log.push({
@@ -433,7 +427,7 @@
   }
 
   function trackShareEvents(state) {
-    var cur;
+    let cur;
     try {
       cur = activeSharerMap(state);
     } catch (e) {
@@ -461,13 +455,18 @@
 
   function tryInjectIntoIframe(source) {
     if (injectAttempted || !source) return false;
-    var iframe = document.getElementById('webclient');
-    if (!iframe || !iframe.contentWindow || !iframe.contentDocument) return false;
+    let iframe = document.getElementById('webclient');
+    if (!iframe || !iframe.contentWindow || !iframe.contentDocument) {
+      // Iframe not ready yet — keep the source so pollStore can retry.
+      pendingInjectSource = source;
+      return false;
+    }
 
+    pendingInjectSource = null;
     try {
       if (iframe.contentWindow.__ztCaptionLoaded) return true;
       injectAttempted = true;
-      var script = iframe.contentDocument.createElement('script');
+      let script = iframe.contentDocument.createElement('script');
       script.textContent = source;
       iframe.contentDocument.head.appendChild(script);
       status = 'Injected into #webclient iframe...';
@@ -486,6 +485,10 @@
 
     if (!store) {
       store = findReduxStore(wcWin.document);
+      if (!store && isParentShell() && pendingInjectSource && injectRetries < MAX_INJECT_RETRIES) {
+        injectRetries++;
+        tryInjectIntoIframe(pendingInjectSource);
+      }
       if (!store && isParentShell() && pollCount === 4) {
         status = 'Run in #webclient iframe console, or reload with script source available.';
         updateUI();
@@ -504,7 +507,7 @@
       updateUI();
     }
 
-    var state;
+    let state;
     try {
       state = store.getState();
     } catch (e) {
@@ -516,8 +519,8 @@
 
     trackShareEvents(state);
 
-    var lines = extractLines(state);
-    var snapshot = JSON.stringify(lines.map(function (l) {
+    let lines = extractLines(state);
+    let snapshot = JSON.stringify(lines.map(function (l) {
       return [l.time, l.name, l.msg, l.finished];
     }));
 
@@ -528,7 +531,7 @@
       updateUI();
       settleTimer = setTimeout(function () {
         settleTimer = null;
-        var added = ingestLines(lines);
+        let added = ingestLines(lines);
         pendingLines = null;
         if (added) {
           statusFlash = 'Logged ' + added + (added === 1 ? ' line' : ' lines');
@@ -539,7 +542,6 @@
     }
 
     if (store) updateUI();
-    watchCaptionPanel();
   }
 
   // ─── Caption panel UI (on-screen subtitles, not transcript sidebar) ─────
@@ -549,9 +551,9 @@
   }
 
   function findCaptionBox(doc) {
-    var sub = doc.getElementById('live-transcription-subtitle');
+    let sub = doc.getElementById('live-transcription-subtitle');
     if (sub && sub.closest) {
-      var inBox = sub.closest('.live-transcription-subtitle__box');
+      let inBox = sub.closest('.live-transcription-subtitle__box');
       if (inBox) return inBox;
     }
     return doc.querySelector('.live-transcription-subtitle__box');
@@ -562,10 +564,10 @@
   }
 
   function captionsVisible(doc) {
-    var sub = doc.getElementById('live-transcription-subtitle');
+    let sub = doc.getElementById('live-transcription-subtitle');
     if (!sub) return false;
     if (sub.style.display === 'none') return false;
-    var box = sub.closest('.live-transcription-subtitle__box');
+    let box = sub.closest('.live-transcription-subtitle__box');
     if (box && box.style.display === 'none') return false;
     return true;
   }
@@ -579,15 +581,15 @@
   }
 
   function findShowCaptionsButton(doc) {
-    var candidates = doc.querySelectorAll('button[title], button[aria-label]');
-    var i;
+    let candidates = doc.querySelectorAll('button[title], button[aria-label]');
+    let i;
     for (i = 0; i < candidates.length; i++) {
-      var label = ((candidates[i].getAttribute('title') || '') + ' ' +
+      let label = ((candidates[i].getAttribute('title') || '') + ' ' +
         (candidates[i].getAttribute('aria-label') || '')).trim();
       if (/^show captions$/i.test(label)) return candidates[i];
     }
     for (i = 0; i < candidates.length; i++) {
-      var req = ((candidates[i].getAttribute('title') || '') + ' ' +
+      let req = ((candidates[i].getAttribute('title') || '') + ' ' +
         (candidates[i].getAttribute('aria-label') || '')).trim();
       if (/^request caption/i.test(req)) return candidates[i];
     }
@@ -595,10 +597,10 @@
   }
 
   function findCaptionLanguageModal(doc) {
-    var dialog = doc.querySelector('.new-LT__selector-language-dialog');
+    let dialog = doc.querySelector('.new-LT__selector-language-dialog');
     if (dialog) return dialog.closest('.zm-modal') || dialog;
-    var modals = doc.querySelectorAll('.lt-select-language');
-    for (var i = 0; i < modals.length; i++) {
+    let modals = doc.querySelectorAll('.lt-select-language');
+    for (let i = 0; i < modals.length; i++) {
       if (modals[i].textContent.indexOf('Set the caption language') >= 0) {
         return modals[i];
       }
@@ -607,19 +609,19 @@
   }
 
   function selectEnglishInLanguageModal(doc, modal) {
-    var valueEl = modal.querySelector('.transcription-language__single-value');
-    var current = valueEl ? valueEl.textContent.trim() : '';
+    let valueEl = modal.querySelector('.transcription-language__single-value');
+    let current = valueEl ? valueEl.textContent.trim() : '';
     if (/^english$/i.test(current)) return true;
 
-    var control = modal.querySelector('.transcription-language__control');
+    let control = modal.querySelector('.transcription-language__control');
     if (control) control.click();
 
-    var options = doc.querySelectorAll(
+    let options = doc.querySelectorAll(
       '.transcription-language__option, [class*="transcription-language__option"], [role="option"]'
     );
-    var i;
+    let i;
     for (i = 0; i < options.length; i++) {
-      var label = options[i].textContent.trim();
+      let label = options[i].textContent.trim();
       if (/^english$/i.test(label)) {
         options[i].click();
         return true;
@@ -629,20 +631,20 @@
   }
 
   function tryDismissCaptionLanguageModal(doc) {
-    var modal = findCaptionLanguageModal(doc);
+    let modal = findCaptionLanguageModal(doc);
     if (!modal) return false;
     if (Date.now() - langModalSaveAt < 1500) return true;
 
     selectEnglishInLanguageModal(doc, modal);
 
-    var valueEl = modal.querySelector('.transcription-language__single-value');
-    var current = valueEl ? valueEl.textContent.trim() : '';
+    let valueEl = modal.querySelector('.transcription-language__single-value');
+    let current = valueEl ? valueEl.textContent.trim() : '';
     if (!/^english$/i.test(current)) return false;
 
-    var saveBtn = modal.querySelector('.zm-modal-footer .zm-btn--primary');
+    let saveBtn = modal.querySelector('.zm-modal-footer .zm-btn--primary');
     if (!saveBtn) {
-      var buttons = modal.querySelectorAll('.zm-modal-footer button, button.zm-btn--primary');
-      for (var i = 0; i < buttons.length; i++) {
+      let buttons = modal.querySelectorAll('.zm-modal-footer button, button.zm-btn--primary');
+      for (let i = 0; i < buttons.length; i++) {
         if (/^save$/i.test(buttons[i].textContent.trim())) {
           saveBtn = buttons[i];
           break;
@@ -664,7 +666,7 @@
     }
     if (!force && Date.now() - openCaptionAttemptAt < 3000) return false;
 
-    var btn = findShowCaptionsButton(doc);
+    let btn = findShowCaptionsButton(doc);
     if (!btn) return false;
 
     openCaptionAttemptAt = Date.now();
@@ -681,8 +683,8 @@
   function startCaptionsAutoEnable(doc) {
     if (captionsEnableTimer || captionsEnabledOnce) return;
 
-    var attempts = 0;
-    var maxAttempts = 40;
+    let attempts = 0;
+    let maxAttempts = 40;
 
     function tick() {
       if (captionsVisible(doc)) {
@@ -707,52 +709,200 @@
 
   function ensureStyles(doc) {
     if (doc.getElementById('__zt-caption-styles')) return;
-    var style = doc.createElement('style');
+    let style = doc.createElement('style');
     style.id = '__zt-caption-styles';
-    style.textContent = [
-      '.__zt-caption-mount{display:block;width:100%;flex:0 0 auto;align-self:stretch;',
-      'margin-top:6px;pointer-events:auto;font-family:system-ui,sans-serif;box-sizing:border-box}',
-      '.live-transcription-subtitle__box:has(.__zt-caption-mount){flex-wrap:wrap;align-items:stretch;',
-      'width:' + CAPTION_PANEL_WIDTH + 'px !important;min-width:' + CAPTION_PANEL_WIDTH + 'px !important;',
-      'max-width:' + CAPTION_PANEL_WIDTH + 'px !important;box-sizing:border-box !important}',
-      '.__zt-caption-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 10px;',
-      'background:rgba(0,0,0,0.72);border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#e8e8e8;font-size:11px}',
-      '.__zt-caption-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;background:#555}',
-      '.__zt-caption-dot--rec{background:#ef4444 !important;box-shadow:0 0 8px rgba(239,68,68,0.8);',
-      'animation:__zt-rec-blink 1s ease-in-out infinite}',
-      '@keyframes __zt-rec-blink{0%,100%{opacity:1}50%{opacity:0.25}}',
-      '.__zt-caption-status{flex:1;min-width:0;color:#ccc;line-height:1.35;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
-      '.__zt-caption-meta{color:#fff;font-weight:700;white-space:nowrap;flex-shrink:0}',
-      '.__zt-caption-actions{display:flex;gap:4px;flex-wrap:wrap;flex-shrink:0}',
-      '.__zt-caption-actions button{background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.14);',
-      'color:#fff;border-radius:5px;padding:3px 8px;font-size:10px;font-weight:600;cursor:pointer}',
-      '.__zt-caption-actions button:hover{background:rgba(255,255,255,0.18)}',
-      '.__zt-caption-log{margin-top:6px;max-height:140px;overflow-y:auto;overflow-x:hidden;padding:6px 8px;',
-      'background:rgba(0,0,0,0.55);border:1px solid rgba(255,255,255,0.08);border-radius:8px;width:100%;box-sizing:border-box}',
-      '.__zt-log-item{font-size:12px;line-height:1.4;color:#f3f3f3;margin-bottom:6px;word-wrap:break-word}',
-      '.__zt-log-item:last-child{margin-bottom:0}',
-      '.__zt-log-item--marker{color:#9aa3af;font-style:italic}',
-      '.__zt-log-time{color:#9aa3af;font-size:10px;margin-right:6px}',
-      '.__zt-log-name{font-size:10px;font-weight:700;margin-right:6px}',
-      '.live-transcription-subtitle__box:has(.__zt-caption-mount) ',
-      '[id="live-transcription-subtitle"]{display:none !important}',
-      '#__zt-live-overlay{display:flex;flex-direction:column;gap:2px;width:100%;box-sizing:border-box}',
-      '.__zt-live-row{display:flex;align-items:flex-start;gap:6px;padding:2px 0}',
-      '.__zt-live-avatar{display:inline-flex;flex-shrink:0}',
-      '.__zt-live-text{flex:1;min-width:0;line-height:1.4;word-wrap:break-word}',
-      '.__zt-w{color:#fff;transition:color 0.4s ease}',
-      '.__zt-w--rec{color:#4ade80}',
-      '.__zt-caption-dock{position:fixed;left:50%;transform:translateX(-50%);bottom:68px;z-index:2147483646;',
-      'width:' + CAPTION_PANEL_WIDTH + 'px;min-width:' + CAPTION_PANEL_WIDTH + 'px;max-width:' + CAPTION_PANEL_WIDTH + 'px;',
-      'padding:8px 10px;pointer-events:auto;box-sizing:border-box;',
-      'background:rgba(0,0,0,0.78);border-radius:8px;box-shadow:0 4px 18px rgba(0,0,0,0.45)}',
-      '.__zt-caption-idle-line{color:rgba(255,255,255,0.45);font-style:italic;font-size:12px;',
-      'line-height:1.4;margin-bottom:6px;display:flex;align-items:center;min-height:24px}',
-      '.live-transcription-subtitle__box:has(.__zt-caption-mount){display:flex !important;',
-      'visibility:visible !important;opacity:1 !important}',
-      '.__zt-caption-fallback{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:2147483646;',
-      'width:' + CAPTION_PANEL_WIDTH + 'px;pointer-events:auto}'
-    ].join('');
+    style.textContent = `
+      :root {
+        --zt-panel-width: ${CAPTION_PANEL_WIDTH}px;
+      }
+      .__zt-caption-mount {
+        display: block;
+        width: 100%;
+        flex: 0 0 auto;
+        align-self: stretch;
+        margin-top: 6px;
+        pointer-events: auto;
+        font-family: system-ui, sans-serif;
+        box-sizing: border-box;
+      }
+      .live-transcription-subtitle__box:has(.__zt-caption-mount) {
+        flex-wrap: wrap;
+        align-items: stretch;
+        width: var(--zt-panel-width) !important;
+        min-width: var(--zt-panel-width) !important;
+        max-width: var(--zt-panel-width) !important;
+        box-sizing: border-box !important;
+        display: flex !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+      }
+      .__zt-caption-bar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        padding: 6px 10px;
+        background: rgba(0, 0, 0, 0.72);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 8px;
+        color: #e8e8e8;
+        font-size: 11px;
+      }
+      .__zt-caption-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        flex-shrink: 0;
+        background: #555;
+      }
+      .__zt-caption-dot--rec {
+        background: #ef4444 !important;
+        box-shadow: 0 0 8px rgba(239, 68, 68, 0.8);
+        animation: __zt-rec-blink 1s ease-in-out infinite;
+      }
+      @keyframes __zt-rec-blink {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.25; }
+      }
+      .__zt-caption-status {
+        flex: 1;
+        min-width: 0;
+        color: #ccc;
+        line-height: 1.35;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .__zt-caption-meta {
+        color: #fff;
+        font-weight: 700;
+        white-space: nowrap;
+        flex-shrink: 0;
+      }
+      .__zt-caption-actions {
+        display: flex;
+        gap: 4px;
+        flex-wrap: wrap;
+        flex-shrink: 0;
+      }
+      .__zt-caption-actions button {
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        color: #fff;
+        border-radius: 5px;
+        padding: 3px 8px;
+        font-size: 10px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .__zt-caption-actions button:hover {
+        background: rgba(255, 255, 255, 0.18);
+      }
+      .__zt-caption-log {
+        margin-top: 6px;
+        max-height: 140px;
+        overflow-y: auto;
+        overflow-x: hidden;
+        padding: 6px 8px;
+        background: rgba(0, 0, 0, 0.55);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 8px;
+        width: 100%;
+        box-sizing: border-box;
+      }
+      .__zt-log-item {
+        font-size: 12px;
+        line-height: 1.4;
+        color: #f3f3f3;
+        margin-bottom: 6px;
+        word-wrap: break-word;
+      }
+      .__zt-log-item:last-child {
+        margin-bottom: 0;
+      }
+      .__zt-log-item--marker {
+        color: #9aa3af;
+        font-style: italic;
+      }
+      .__zt-log-time {
+        color: #9aa3af;
+        font-size: 10px;
+        margin-right: 6px;
+      }
+      .__zt-log-name {
+        font-size: 10px;
+        font-weight: 700;
+        margin-right: 6px;
+      }
+      .live-transcription-subtitle__box:has(.__zt-caption-mount) [id="live-transcription-subtitle"] {
+        display: none !important;
+      }
+      #__zt-live-overlay {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        width: 100%;
+        box-sizing: border-box;
+      }
+      .__zt-live-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 6px;
+        padding: 2px 0;
+      }
+      .__zt-live-avatar {
+        display: inline-flex;
+        flex-shrink: 0;
+      }
+      .__zt-live-text {
+        flex: 1;
+        min-width: 0;
+        line-height: 1.4;
+        word-wrap: break-word;
+      }
+      .__zt-w {
+        color: #fff;
+        transition: color 0.4s ease;
+      }
+      .__zt-w--rec {
+        color: #4ade80;
+      }
+      .__zt-caption-dock {
+        position: fixed;
+        left: 50%;
+        transform: translateX(-50%);
+        bottom: 68px;
+        z-index: 2147483646;
+        width: var(--zt-panel-width);
+        min-width: var(--zt-panel-width);
+        max-width: var(--zt-panel-width);
+        padding: 8px 10px;
+        pointer-events: auto;
+        box-sizing: border-box;
+        background: rgba(0, 0, 0, 0.78);
+        border-radius: 8px;
+        box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
+      }
+      .__zt-caption-idle-line {
+        color: rgba(255, 255, 255, 0.45);
+        font-style: italic;
+        font-size: 12px;
+        line-height: 1.4;
+        margin-bottom: 6px;
+        display: flex;
+        align-items: center;
+        min-height: 24px;
+      }
+      .__zt-caption-fallback {
+        position: fixed;
+        bottom: 16px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 2147483646;
+        width: var(--zt-panel-width);
+        pointer-events: auto;
+      }
+    `;
     doc.head.appendChild(style);
   }
 
@@ -768,13 +918,14 @@
   }
 
   function onCopyClick() {
-    var text = formatOutput();
+    flushPending();
+    let text = formatOutput();
     if (!text) {
       alert('No captions captured yet. Try __ztCaption.probe() in console.');
       return;
     }
     navigator.clipboard.writeText(text).then(function () {
-      var btn = ui && ui.mount && ui.mount.querySelector('#__zt-caption-copy');
+      let btn = ui && ui.mount && ui.mount.querySelector('#__zt-caption-copy');
       if (!btn) return;
       btn.textContent = 'Copied!';
       setTimeout(function () { btn.textContent = 'Copy'; }, 2000);
@@ -786,25 +937,24 @@
 
   function shutdown() {
     if (pollTimer) clearInterval(pollTimer);
-    if (panelWatchTimer) clearInterval(panelWatchTimer);
     if (settleTimer) clearTimeout(settleTimer);
     if (captionsEnableTimer) clearInterval(captionsEnableTimer);
     captionsEnableTimer = null;
     if (ui && ui.boxObserver) ui.boxObserver.disconnect();
     if (captionDomObserver) captionDomObserver.disconnect();
     teardownAutoDownloadHooks();
-    var doc = activeDoc();
-    var mount = doc.getElementById('__zt-caption-mount');
+    let doc = activeDoc();
+    let mount = doc.getElementById('__zt-caption-mount');
     if (mount) mount.remove();
-    var dock = doc.getElementById('__zt-caption-dock');
+    let dock = doc.getElementById('__zt-caption-dock');
     if (dock) dock.remove();
-    var idle = doc.getElementById('__zt-caption-idle');
+    let idle = doc.getElementById('__zt-caption-idle');
     if (idle) idle.remove();
-    var fallback = doc.getElementById('__zt-caption-fallback');
+    let fallback = doc.getElementById('__zt-caption-fallback');
     if (fallback) fallback.remove();
-    var overlay = doc.getElementById('__zt-live-overlay');
+    let overlay = doc.getElementById('__zt-live-overlay');
     if (overlay) overlay.remove();
-    var styles = doc.getElementById('__zt-caption-styles');
+    let styles = doc.getElementById('__zt-caption-styles');
     if (styles) styles.remove();
     window.__ztCaptionLoaded = false;
     delete window.__ztCaption;
@@ -812,7 +962,7 @@
 
   function createMount(doc) {
     ensureStyles(doc);
-    var mount = doc.createElement('div');
+    let mount = doc.createElement('div');
     mount.id = '__zt-caption-mount';
     mount.className = '__zt-caption-mount';
     mount.innerHTML = [
@@ -841,9 +991,9 @@
   }
 
   function hasLiveCaptionText(doc) {
-    var rows = getLiveSubtitleRows(doc);
-    for (var i = 0; i < rows.length; i++) {
-      var line = rows[i].querySelector('.live-transcription-subtitle__item, .live-transcription-subtitle__yellowitem');
+    let rows = getLiveSubtitleRows(doc);
+    for (let i = 0; i < rows.length; i++) {
+      let line = rows[i].querySelector('.live-transcription-subtitle__item, .live-transcription-subtitle__yellowitem');
       if (line && line.textContent && line.textContent.trim()) return true;
     }
     return false;
@@ -853,29 +1003,44 @@
     return String(text || '').replace(/\uFFFD/g, '').replace(/\s+/g, ' ').trim();
   }
 
+  // Cache of normalized log messages, rebuilt only when the log changes
+  // (ingest appends in place; dedup/reset replace the array entirely).
+  let msgsCacheSrc = null;
+  let msgsCacheLen = -1;
+  let msgsCache = [];
+
+  function normalizedLogMsgs() {
+    if (msgsCacheSrc !== log || msgsCacheLen !== log.length) {
+      msgsCache = [];
+      for (let i = 0; i < log.length; i++) {
+        let m = normalizeCaptionText(log[i].msg);
+        if (m) msgsCache.push(m);
+      }
+      msgsCacheSrc = log;
+      msgsCacheLen = log.length;
+    }
+    return msgsCache;
+  }
+
   // Length of the leading portion of `norm` covered by saved log entries.
   // Zoom may concatenate several utterances into one subtitle row, so keep
   // consuming consecutive log entries against the remainder of the text.
   function recordedPrefixLength(norm) {
     if (!norm) return 0;
 
-    var msgs = [];
-    for (var i = 0; i < log.length; i++) {
-      var m = normalizeCaptionText(log[i].msg);
-      if (m) msgs.push(m);
-    }
+    let msgs = normalizedLogMsgs();
 
-    var pos = 0;
-    var advanced = true;
+    let pos = 0;
+    let advanced = true;
     while (advanced && pos < norm.length) {
       advanced = false;
       while (norm.charAt(pos) === ' ') pos++;
-      var rest = norm.slice(pos);
+      let rest = norm.slice(pos);
       if (!rest) break;
 
-      var best = 0;
-      for (var j = msgs.length - 1; j >= 0; j--) {
-        var msg = msgs[j];
+      let best = 0;
+      for (let j = msgs.length - 1; j >= 0; j--) {
+        let msg = msgs[j];
         // Remainder is a prefix of a saved entry (log already holds a longer
         // merged version) — everything visible is recorded.
         if (rest.length <= msg.length && msg.indexOf(rest) === 0) return norm.length;
@@ -892,10 +1057,10 @@
 
   // Number of leading words of `norm` that are recorded, snapped to a word boundary.
   function recordedWordCount(norm, words) {
-    var n = recordedPrefixLength(norm);
+    let n = recordedPrefixLength(norm);
     if (n <= 0) return 0;
     if (n >= norm.length) return words.length;
-    var cut = norm.charAt(n) === ' ' ? n : norm.lastIndexOf(' ', n);
+    let cut = norm.charAt(n) === ' ' ? n : norm.lastIndexOf(' ', n);
     if (cut <= 0) return 0;
     return norm.slice(0, cut).split(' ').length;
   }
@@ -904,14 +1069,14 @@
     while (textWrap.children.length > words.length) {
       textWrap.removeChild(textWrap.lastChild);
     }
-    for (var i = 0; i < words.length; i++) {
-      var s = textWrap.children[i];
+    for (let i = 0; i < words.length; i++) {
+      let s = textWrap.children[i];
       if (!s) {
         s = doc.createElement('span');
         s.className = '__zt-w';
         textWrap.appendChild(s);
       }
-      var t = words[i] + ' ';
+      let t = words[i] + ' ';
       if (s.textContent !== t) s.textContent = t;
       if (i < recCount) s.classList.add('__zt-w--rec');
       else s.classList.remove('__zt-w--rec');
@@ -919,27 +1084,27 @@
   }
 
   function renderLiveOverlay(doc) {
-    var box = findCaptionBox(doc);
+    let box = findCaptionBox(doc);
     if (!box) return;
 
-    var ov = box.querySelector('#__zt-live-overlay');
+    let ov = box.querySelector('#__zt-live-overlay');
     if (!ov) {
       ov = doc.createElement('div');
       ov.id = '__zt-live-overlay';
       box.appendChild(ov);
     }
 
-    var rows = box.querySelectorAll('[id="live-transcription-subtitle"]');
-    var used = 0;
+    let rows = box.querySelectorAll('[id="live-transcription-subtitle"]');
+    let used = 0;
 
-    for (var i = 0; i < rows.length; i++) {
-      var native = rows[i];
-      var line = native.querySelector('.live-transcription-subtitle__item, .live-transcription-subtitle__yellowitem');
-      var norm = normalizeCaptionText(line ? line.textContent : '');
+    for (let i = 0; i < rows.length; i++) {
+      let native = rows[i];
+      let line = native.querySelector('.live-transcription-subtitle__item, .live-transcription-subtitle__yellowitem');
+      let norm = normalizeCaptionText(line ? line.textContent : '');
       if (!norm) continue;
 
-      var reps = ov.querySelectorAll('.__zt-live-row');
-      var rep = reps[used];
+      let reps = ov.querySelectorAll('.__zt-live-row');
+      let rep = reps[used];
       if (!rep) {
         rep = doc.createElement('div');
         rep.className = '__zt-live-row';
@@ -948,9 +1113,9 @@
       }
       used++;
 
-      var avatarHolder = rep.querySelector('.__zt-live-avatar');
-      var nativeAvatar = native.querySelector('.zmu-data-selector-item__icon');
-      var avatarKey = nativeAvatar
+      let avatarHolder = rep.querySelector('.__zt-live-avatar');
+      let nativeAvatar = native.querySelector('.zmu-data-selector-item__icon');
+      let avatarKey = nativeAvatar
         ? (nativeAvatar.tagName === 'IMG' ? nativeAvatar.getAttribute('src') : nativeAvatar.outerHTML)
         : '';
       if (rep.getAttribute('data-avatar') !== avatarKey) {
@@ -959,12 +1124,12 @@
         if (nativeAvatar) avatarHolder.appendChild(nativeAvatar.cloneNode(true));
       }
 
-      var words = norm.split(' ');
+      let words = norm.split(' ');
       updateRowWords(doc, rep.querySelector('.__zt-live-text'), words, recordedWordCount(norm, words));
     }
 
-    var allReps = ov.querySelectorAll('.__zt-live-row');
-    for (var j = allReps.length - 1; j >= used; j--) {
+    let allReps = ov.querySelectorAll('.__zt-live-row');
+    for (let j = allReps.length - 1; j >= used; j--) {
       allReps[j].remove();
     }
 
@@ -973,7 +1138,7 @@
 
   function syncIdleLine(doc, container) {
     if (!container) return;
-    var idle = doc.getElementById('__zt-caption-idle');
+    let idle = doc.getElementById('__zt-caption-idle');
     if (!hasLiveCaptionText(doc)) {
       if (!idle) {
         idle = doc.createElement('div');
@@ -996,7 +1161,7 @@
     box.style.setProperty('visibility', 'visible', 'important');
     box.style.setProperty('opacity', '1', 'important');
 
-    var wrap = box.closest('.lt-subtitle-wrap');
+    let wrap = box.closest('.lt-subtitle-wrap');
     if (wrap) {
       lockPanelWidth(wrap);
       wrap.style.setProperty('display', 'block', 'important');
@@ -1006,7 +1171,7 @@
 
   function ensurePinDock(doc) {
     ensureStyles(doc);
-    var dock = doc.getElementById('__zt-caption-dock');
+    let dock = doc.getElementById('__zt-caption-dock');
     if (!dock) {
       dock = doc.createElement('div');
       dock.id = '__zt-caption-dock';
@@ -1019,7 +1184,7 @@
 
   function createFallback(doc) {
     ensureStyles(doc);
-    var fallback = doc.createElement('div');
+    let fallback = doc.createElement('div');
     fallback.id = '__zt-caption-fallback';
     fallback.className = '__zt-caption-fallback';
     fallback.style.display = 'none';
@@ -1032,8 +1197,8 @@
     if (ui && ui.boxObserver && ui.observedBox === box) return;
 
     if (ui && ui.boxObserver) ui.boxObserver.disconnect();
-    var obs = new MutationObserver(function () {
-      var mount = doc.getElementById('__zt-caption-mount');
+    let obs = new MutationObserver(function () {
+      let mount = doc.getElementById('__zt-caption-mount');
       if (!mount || !mount.isConnected || mount.parentElement !== box) {
         attachMount(doc);
       }
@@ -1047,7 +1212,7 @@
   function startCaptionDomWatch(doc) {
     if (captionDomObserver) return;
     captionDomObserver = new MutationObserver(function () {
-      var mount = doc.getElementById('__zt-caption-mount');
+      let mount = doc.getElementById('__zt-caption-mount');
       if (!mount || !mount.isConnected) {
         watchCaptionPanel();
       }
@@ -1056,12 +1221,12 @@
   }
 
   function attachMount(doc) {
-    var mount = doc.getElementById('__zt-caption-mount');
+    let mount = doc.getElementById('__zt-caption-mount');
     if (!mount) mount = createMount(doc);
 
-    var box = findCaptionBox(doc);
-    var dock = ensurePinDock(doc);
-    var usingBox = false;
+    let box = findCaptionBox(doc);
+    let dock = ensurePinDock(doc);
+    let usingBox = false;
 
     if (box) {
       keepCaptionBoxVisible(doc, box);
@@ -1073,8 +1238,8 @@
 
       if (box.style.bottom) dock.style.bottom = box.style.bottom;
 
-      if (!attachMount.logged) {
-        attachMount.logged = true;
+      if (!attachBoxLogged) {
+        attachBoxLogged = true;
         console.info('[ZT Captions] Attached inside caption box.');
       }
     } else {
@@ -1083,15 +1248,15 @@
       dock.style.display = 'block';
       uiMountedHost = null;
 
-      if (!attachMount.dockLogged) {
-        attachMount.dockLogged = true;
+      if (!attachDockLogged) {
+        attachDockLogged = true;
         console.info('[ZT Captions] Caption box hidden — keeping pinned recorder visible.');
       }
     }
 
     startCaptionDomWatch(doc);
 
-    var fallback = doc.getElementById('__zt-caption-fallback');
+    let fallback = doc.getElementById('__zt-caption-fallback');
     if (fallback) fallback.style.display = 'none';
 
     ui = ui || {};
@@ -1106,8 +1271,16 @@
     return true;
   }
 
+  let lastPanelWatchAt = 0;
+
   function watchCaptionPanel() {
-    var doc;
+    // updateUI can fire several times per poll tick; the panel scan only
+    // needs to run once per tick.
+    let now = Date.now();
+    if (now - lastPanelWatchAt < 250) return;
+    lastPanelWatchAt = now;
+
+    let doc;
     try {
       doc = activeDoc();
     } catch (e) {
@@ -1137,9 +1310,9 @@
       renderedLogCount = 0;
     }
 
-    for (var i = renderedLogCount; i < log.length; i++) {
-      var e = log[i];
-      var item = ui.logEl.ownerDocument.createElement('div');
+    for (let i = renderedLogCount; i < log.length; i++) {
+      let e = log[i];
+      let item = ui.logEl.ownerDocument.createElement('div');
       item.className = '__zt-log-item' + (e.marker ? ' __zt-log-item--marker' : '');
       item.setAttribute('data-key', e.key);
       item.innerHTML =
@@ -1163,7 +1336,7 @@
 
     if (store && settleTimer && pendingLines && pendingLines.length &&
         !(statusFlash && Date.now() < statusFlashUntil)) {
-      var who = latestPendingSpeaker();
+      let who = latestPendingSpeaker();
       if (who) {
         ui.statusEl.innerHTML = 'Recording — <span style="color:' +
           getSpeakerColor(who) + ';font-weight:700">' + escapeHtml(who) + '</span>';
@@ -1187,7 +1360,8 @@
     renderLogItems();
   }
 
-  function formatOutput() {
+  // Cancel the settle debounce and capture whatever is pending right now.
+  function flushPending() {
     if (settleTimer) {
       clearTimeout(settleTimer);
       settleTimer = null;
@@ -1200,10 +1374,12 @@
       } catch (e) { /* ignore */ }
     }
     persistLog();
+  }
 
-    var lastSpeaker = null;
+  function formatOutput() {
+    let lastSpeaker = null;
     return log.map(function (e) {
-      var line = '';
+      let line = '';
       if (e.name && e.name !== lastSpeaker) {
         line += '\n[' + e.name + ']\n';
         lastSpeaker = e.name;
@@ -1214,7 +1390,7 @@
   }
 
   function downloadFilename() {
-    var d = new Date();
+    let d = new Date();
     function pad(n) { return (n < 10 ? '0' : '') + n; }
     return 'captions-' + d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + '-' +
       pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds()) + '.txt';
@@ -1222,18 +1398,19 @@
 
   function downloadCaptions(options) {
     options = options || {};
-    var isAuto = !!options.auto;
-    var reason = options.reason || 'manual';
+    let isAuto = !!options.auto;
+    let reason = options.reason || 'manual';
 
     if (isAuto && Date.now() - lastAutoDownloadAt < 5000) return false;
 
-    var text = formatOutput();
+    flushPending();
+    let text = formatOutput();
     if (!text) {
       if (!isAuto) alert('No captions captured yet. Try __ztCaption.probe() in console.');
       return false;
     }
 
-    var a = activeDoc().createElement('a');
+    let a = activeDoc().createElement('a');
     a.href = 'data:text/plain;charset=utf-8,' + encodeURIComponent(text);
     a.download = downloadFilename();
     a.click();
@@ -1251,13 +1428,13 @@
 
   function findMeetingExitButton(target) {
     if (!target || !target.closest) return null;
-    var endBtn = target.closest('button[aria-label="End"]');
+    let endBtn = target.closest('button[aria-label="End"]');
     if (endBtn) return { btn: endBtn, reason: 'end-button' };
-    var leaveBtn = target.closest('button[aria-label="Leave"]');
+    let leaveBtn = target.closest('button[aria-label="Leave"]');
     if (leaveBtn) return { btn: leaveBtn, reason: 'leave-button' };
-    var footerBtn = target.closest('button.footer-button__button, button.footer-button-base__button');
+    let footerBtn = target.closest('button.footer-button__button, button.footer-button-base__button');
     if (footerBtn) {
-      var label = ((footerBtn.getAttribute('aria-label') || '') + ' ' + (footerBtn.textContent || '')).trim();
+      let label = ((footerBtn.getAttribute('aria-label') || '') + ' ' + (footerBtn.textContent || '')).trim();
       if (/^end$/i.test(label)) return { btn: footerBtn, reason: 'end-button' };
       if (/^leave$/i.test(label)) return { btn: footerBtn, reason: 'leave-button' };
     }
@@ -1279,17 +1456,17 @@
     teardownAutoDownloadHooks();
 
     meetingExitClickHandler = function (e) {
-      var hit = findMeetingExitButton(e.target);
+      let hit = findMeetingExitButton(e.target);
       if (hit) downloadCaptions({ auto: true, reason: hit.reason });
     };
     doc.addEventListener('click', meetingExitClickHandler, true);
 
     hostEndedObserver = new MutationObserver(function () {
-      var nodes = doc.querySelectorAll(
+      let nodes = doc.querySelectorAll(
         '.zm-modal-body-title, .zm-modal-body-content, .confirm-modal-content, [role="dialog"]'
       );
-      for (var i = 0; i < nodes.length; i++) {
-        var t = nodes[i].textContent || '';
+      for (let i = 0; i < nodes.length; i++) {
+        let t = nodes[i].textContent || '';
         if (/meeting has been ended by the host/i.test(t) || /ended by host/i.test(t)) {
           downloadCaptions({ auto: true, reason: 'host-ended' });
           return;
@@ -1311,7 +1488,6 @@
     log = [];
     seen = new Set();
     lastSnapshot = '';
-    lastCapturedTime = null;
     renderedLogCount = 0;
     speakerColorMap = {};
     speakerColorIdx = 0;
@@ -1325,8 +1501,8 @@
     getLog: function () { return log.slice(); },
     probe: function () {
       wcWin = getWebclientWindow();
-      var found = findReduxStore(wcWin.document);
-      var info = {
+      let found = findReduxStore(wcWin.document);
+      let info = {
         frame: window === wcWin ? 'webclient' : 'parent-shell',
         wcUrl: wcWin.location.href,
         storeFound: !!found,
@@ -1334,11 +1510,11 @@
         lineCount: log.length,
         captionBoxFound: !!findCaptionBox(wcWin.document),
         captionPanelAttached: !!(function () {
-          var m = wcWin.document.getElementById('__zt-caption-mount');
+          let m = wcWin.document.getElementById('__zt-caption-mount');
           return m && m.isConnected;
         })(),
         captionDockVisible: !!(function () {
-          var d = wcWin.document.getElementById('__zt-caption-dock');
+          let d = wcWin.document.getElementById('__zt-caption-dock');
           return d && d.style.display !== 'none';
         })()
       };
@@ -1360,7 +1536,7 @@
 
   // Auto-inject into iframe when loaded via <script src="..."> from parent shell
   if (isParentShell() && document.currentScript) {
-    var boot = document.currentScript;
+    let boot = document.currentScript;
     if (boot.src) {
       fetch(boot.src).then(function (r) { return r.text(); }).then(function (src) {
         tryInjectIntoIframe(src);
@@ -1372,10 +1548,9 @@
     }
   }
 
+  // pollStore drives the panel watcher each tick via updateUI -> watchCaptionPanel.
   pollTimer = setInterval(pollStore, POLL_MS);
-  panelWatchTimer = setInterval(watchCaptionPanel, 800);
   pollStore();
-  watchCaptionPanel();
   try {
     startCaptionsAutoEnable(activeDoc());
   } catch (e) { /* iframe not ready yet */ }
