@@ -331,6 +331,10 @@
   const widthKey = '__ztCaptionWidth';
   const MIN_PANEL_WIDTH = 320;
   const MAX_PANEL_WIDTH = 900;
+  const heightKey = '__ztCaptionHeight';
+  const MIN_LOG_HEIGHT = 100;
+  const MAX_LOG_HEIGHT = 700;
+  const DEFAULT_LOG_HEIGHT = 160;
 
   if (localStorage.getItem(meetingKey) !== meetingId) {
     localStorage.removeItem(storageKey);
@@ -376,6 +380,11 @@
     let w = parseInt(localStorage.getItem(widthKey), 10);
     if (isNaN(w)) return CAPTION_PANEL_WIDTH;
     return Math.max(MIN_PANEL_WIDTH, Math.min(MAX_PANEL_WIDTH, w));
+  })();
+  let logHeight = (function () {
+    let h = parseInt(localStorage.getItem(heightKey), 10);
+    if (isNaN(h)) return DEFAULT_LOG_HEIGHT;
+    return Math.max(MIN_LOG_HEIGHT, Math.min(MAX_LOG_HEIGHT, h));
   })();
 
   const SPEAKER_PALETTE_DARK = ['#7dd3fc', '#f9a8d4', '#fcd34d', '#86efac', '#c4b5fd', '#fb923c', '#67e8f9', '#f87171'];
@@ -444,8 +453,7 @@
 
   let prevSharers = null;
 
-  function addShareMarker(text) {
-    if (paused) return;
+  function addMarker(text, src) {
     let time = formatTime(Date.now());
     let msg = '— ' + text + ' —';
     let key = makeKey(time, null, msg);
@@ -456,10 +464,15 @@
       time: time,
       name: null,
       msg: msg,
-      src: 'share-event',
+      src: src,
       marker: true
     });
     persistLog();
+  }
+
+  function addShareMarker(text) {
+    if (paused) return;
+    addMarker(text, 'share-event');
   }
 
   function trackShareEvents(state) {
@@ -614,6 +627,10 @@
     if (dock) lockPanelWidth(dock);
   }
 
+  function applyLogHeight(doc) {
+    doc.documentElement.style.setProperty('--zt-log-height', logHeight + 'px');
+  }
+
   function findShowCaptionsButton(doc) {
     let candidates = doc.querySelectorAll('button[title], button[aria-label]');
     let i;
@@ -748,6 +765,7 @@
     style.textContent = `
       :root {
         --zt-panel-width: ${panelWidth}px;
+        --zt-log-height: ${logHeight}px;
 
         --zt-widget-bg:           rgba(255,255,255,0.97);
         --zt-widget-border:       rgba(0,0,0,0.09);
@@ -908,25 +926,48 @@
       }
       .__zt-resize-handle {
         position: absolute;
-        top: 0;
-        bottom: 0;
-        right: -8px;
-        width: 16px;
-        cursor: ew-resize;
         z-index: 1;
       }
       .__zt-resize-handle::after {
         content: '';
         position: absolute;
-        top: 0;
-        bottom: 0;
-        left: 5px;
-        width: 4px;
         border-radius: 2px;
         transition: background 0.15s;
       }
       .__zt-resize-handle:hover::after,
       .__zt-resize-handle.active::after { background: var(--zt-icon-btn-active-border); }
+      .__zt-resize-handle--left,
+      .__zt-resize-handle--right {
+        top: 0;
+        bottom: 0;
+        width: 16px;
+        cursor: ew-resize;
+      }
+      .__zt-resize-handle--right { right: -8px; }
+      .__zt-resize-handle--left { left: -8px; }
+      .__zt-resize-handle--left::after,
+      .__zt-resize-handle--right::after {
+        top: 0;
+        bottom: 0;
+        left: 6px;
+        width: 4px;
+      }
+      .__zt-resize-handle--top,
+      .__zt-resize-handle--bottom {
+        left: 0;
+        right: 0;
+        height: 16px;
+        cursor: ns-resize;
+      }
+      .__zt-resize-handle--bottom { bottom: -8px; }
+      .__zt-resize-handle--top { top: -8px; }
+      .__zt-resize-handle--top::after,
+      .__zt-resize-handle--bottom::after {
+        left: 0;
+        right: 0;
+        top: 6px;
+        height: 4px;
+      }
       .live-transcription-subtitle__box:has(.__zt-caption-mount) {
         flex-wrap: wrap;
         align-items: stretch;
@@ -1066,7 +1107,7 @@
 
       /* ── Search ── */
       .__zt-search {
-        display: flex;
+        display: none; /* temporarily hidden — restore to flex to bring back search */
         align-items: center;
         gap: 6px;
         background: var(--zt-search-bg);
@@ -1094,7 +1135,7 @@
 
       /* ── Log entries ── */
       .__zt-log-entries {
-        max-height: 160px;
+        height: var(--zt-log-height);
         overflow-y: auto;
         overflow-x: hidden;
         padding-right: 2px;
@@ -1427,12 +1468,11 @@
   }
 
   // Zoom's caption box is a react-draggable with global hotkeys on the
-  // document: without this, mousedown on our inputs starts a drag instead of
-  // focusing, and keystrokes trigger Zoom shortcuts. Inner handlers still run
-  // (they're on descendants, which fire before bubbling reaches the shield),
-  // and document-level capture listeners (dropdown close, auto-download) are
-  // unaffected.
-  function shieldWidgetEvents(el) {
+  // document: without this, mousedown on the search input starts a box drag
+  // instead of focusing, and keystrokes trigger Zoom shortcuts. Shield ONLY
+  // the input — shielding the whole widget breaks dragging the box entirely.
+  function shieldInputEvents(el) {
+    if (!el) return;
     ['mousedown', 'mouseup', 'click', 'dblclick', 'pointerdown', 'pointerup',
       'touchstart', 'keydown', 'keypress', 'keyup'].forEach(function (type) {
       el.addEventListener(type, function (e) { e.stopPropagation(); });
@@ -1561,33 +1601,47 @@
       downloadJson();
     };
 
-    // Right-edge drag handle to resize the panel width.
-    let handle = doc.createElement('div');
-    handle.className = '__zt-resize-handle';
-    handle.title = 'Drag to resize';
-    mount.appendChild(handle);
-    handle.addEventListener('mousedown', function (e) {
-      e.preventDefault();
-      e.stopPropagation();
-      let startX = e.clientX;
-      let startW = panelWidth;
-      handle.classList.add('active');
-      function onMove(ev) {
-        ev.preventDefault();
-        panelWidth = Math.max(MIN_PANEL_WIDTH, Math.min(MAX_PANEL_WIDTH, startW + (ev.clientX - startX)));
-        applyPanelWidth(doc);
-      }
-      function onUp() {
-        doc.removeEventListener('mousemove', onMove, true);
-        doc.removeEventListener('mouseup', onUp, true);
-        handle.classList.remove('active');
-        localStorage.setItem(widthKey, String(panelWidth));
-      }
-      doc.addEventListener('mousemove', onMove, true);
-      doc.addEventListener('mouseup', onUp, true);
+    // Edge drag handles on all four sides: left/right resize the panel
+    // width, top/bottom resize the transcript height (header and footer keep
+    // their natural size). Left/top invert the delta so the grabbed edge
+    // follows the mouse.
+    ['left', 'right', 'top', 'bottom'].forEach(function (side) {
+      let horiz = side === 'left' || side === 'right';
+      let sign = (side === 'left' || side === 'top') ? -1 : 1;
+      let handle = doc.createElement('div');
+      handle.className = '__zt-resize-handle __zt-resize-handle--' + side;
+      handle.title = 'Drag to resize';
+      mount.appendChild(handle);
+      handle.addEventListener('mousedown', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        let start = horiz ? e.clientX : e.clientY;
+        let startVal = horiz ? panelWidth : logHeight;
+        handle.classList.add('active');
+        function onMove(ev) {
+          ev.preventDefault();
+          let delta = sign * ((horiz ? ev.clientX : ev.clientY) - start);
+          if (horiz) {
+            panelWidth = Math.max(MIN_PANEL_WIDTH, Math.min(MAX_PANEL_WIDTH, startVal + delta));
+            applyPanelWidth(doc);
+          } else {
+            logHeight = Math.max(MIN_LOG_HEIGHT, Math.min(MAX_LOG_HEIGHT, startVal + delta));
+            applyLogHeight(doc);
+          }
+        }
+        function onUp() {
+          doc.removeEventListener('mousemove', onMove, true);
+          doc.removeEventListener('mouseup', onUp, true);
+          handle.classList.remove('active');
+          if (horiz) localStorage.setItem(widthKey, String(panelWidth));
+          else localStorage.setItem(heightKey, String(logHeight));
+        }
+        doc.addEventListener('mousemove', onMove, true);
+        doc.addEventListener('mouseup', onUp, true);
+      });
     });
 
-    shieldWidgetEvents(mount);
+    shieldInputEvents(mount.querySelector('#__zt-search-input'));
     return mount;
   }
 
@@ -1611,7 +1665,6 @@
     ].join('');
 
     pill.onclick = function () { setCollapsed(false); };
-    shieldWidgetEvents(pill);
     return pill;
   }
 
@@ -1966,6 +2019,7 @@
   function setPaused(p) {
     if (paused === p) return;
     paused = p;
+    addMarker(p ? 'Recording paused' : 'Recording resumed', 'pause-event');
     if (settleTimer) {
       clearTimeout(settleTimer);
       settleTimer = null;
@@ -2121,9 +2175,30 @@
     persistLog();
   }
 
+  // Sorted speaker talk-time, mirroring the Stats tab.
+  function talkTimeSummary() {
+    let names = Object.keys(speakerStats);
+    if (!names.length) return [];
+    let total = 0;
+    names.forEach(function (n) { total += speakerStats[n]; });
+    names.sort(function (a, b) { return speakerStats[b] - speakerStats[a]; });
+    return names.map(function (n) {
+      let count = speakerStats[n];
+      return {
+        speaker: n,
+        lines: count,
+        pct: Math.round(count / total * 100)
+      };
+    });
+  }
+
   function formatOutput() {
     let lastSpeaker = null;
-    return log.map(function (e) {
+    let body = log.map(function (e) {
+      if (e.marker) {
+        lastSpeaker = null;
+        return (e.time || '—') + '  ' + e.msg;
+      }
       let line = '';
       if (e.name && e.name !== lastSpeaker) {
         line += '\n[' + e.name + ']\n';
@@ -2132,6 +2207,14 @@
       line += (e.time || '—') + '  ' + e.msg;
       return line;
     }).join('\n').trim();
+
+    let stats = talkTimeSummary();
+    if (stats.length) {
+      body += '\n\n— Talk time —\n' + stats.map(function (s) {
+        return s.speaker + ': ' + s.pct + '% (' + s.lines + (s.lines === 1 ? ' line' : ' lines') + ')';
+      }).join('\n');
+    }
+    return body;
   }
 
   function slugify(s) {
@@ -2155,6 +2238,7 @@
     let payload = {
       session: sessionName || null,
       exportedAt: new Date().toISOString(),
+      talkTime: talkTimeSummary(),
       entries: log.map(function (e) {
         return {
           time: e.time || null,
