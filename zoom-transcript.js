@@ -1207,10 +1207,38 @@
       }
       .__zt-entry--continued .__zt-entry-header { display: none; }
       .__zt-entry--show-name .__zt-entry-header { display: flex; }
-      .__zt-entry-logged {
-        flex-shrink: 0;
-        align-self: center;
-        display: block;
+      /* In-flight lines get a pulsing dot in the left gutter; once a line is
+         logged the dot disappears and it renders like every other entry. */
+      .__zt-entry--pending .__zt-entry-msg { position: relative; }
+      .__zt-entry--pending .__zt-entry-msg::before {
+        content: '';
+        position: absolute;
+        left: 44px;
+        top: 0.45em;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: #f59e0b;
+        animation: __zt-blink 1s ease-in-out infinite;
+      }
+      /* Just-logged lines run a one-shot pop: the gutter dot turns green,
+         swells slightly, and vanishes. */
+      .__zt-entry--just-logged .__zt-entry-msg { position: relative; }
+      .__zt-entry--just-logged .__zt-entry-msg::before {
+        content: '';
+        position: absolute;
+        left: 44px;
+        top: 0.45em;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        animation: __zt-pop 0.55s ease-out forwards;
+      }
+      @keyframes __zt-pop {
+        0%   { background: #f59e0b; transform: scale(1);    opacity: 1; }
+        35%  { background: #22c55e; transform: scale(1);    opacity: 1; }
+        65%  { background: #22c55e; transform: scale(1.45); opacity: 0.9; }
+        100% { background: #22c55e; transform: scale(0.3);  opacity: 0; }
       }
       .__zt-idle {
         color: var(--zt-text-idle);
@@ -1225,6 +1253,16 @@
       .__zt-idle strong { color: var(--zt-text-idle-strong); margin: 0 4px; font-style: normal; }
 
       /* ── Stats ── */
+      /* Match the log panel's user-set height so switching tabs doesn't
+         change the widget size. */
+      .__zt-tab-panel[data-panel="stats"] {
+        height: var(--zt-log-height);
+        overflow-y: auto;
+        overflow-x: hidden;
+      }
+      .__zt-tab-panel[data-panel="stats"]::-webkit-scrollbar { width: 3px; }
+      .__zt-tab-panel[data-panel="stats"]::-webkit-scrollbar-track { background: transparent; }
+      .__zt-tab-panel[data-panel="stats"]::-webkit-scrollbar-thumb { background: var(--zt-scrollbar); border-radius: 2px; }
       .__zt-stats-header {
         display: flex;
         justify-content: space-between;
@@ -1834,19 +1872,12 @@
       // Name (with timestamp) on its own header line; the message block below
       // shares a single left edge. Continued entries hide the header — search
       // reveal (--show-name) brings back that entry's own time + name.
-      let loggedBadge = !pending
-        ? '<svg class="__zt-entry-logged" viewBox="0 0 10 10" width="9" height="9" aria-hidden="true">' +
-            '<circle cx="5" cy="5" r="5" fill="#22c55e"/>' +
-            '<path d="M2.8 5.2 4.3 6.7 7.2 3.6" stroke="#fff" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>' +
-          '</svg>'
-        : '';
       item.innerHTML =
         '<div class="__zt-entry-header">' +
           timeHtml +
           (e.name
             ? '<span class="__zt-entry-name" style="color:' + getSpeakerColor(e.name) + '">' + escapeHtml(e.name) + '</span>'
             : '') +
-          loggedBadge +
         '</div>' +
         msgHtml;
     }
@@ -1876,10 +1907,20 @@
       nearBottom = true;
     }
 
+    // Only pop on live additions — bulk renders (initial restore, theme
+    // rebuild) start from renderedLogCount 0 and skip the animation.
+    let animateNew = renderedLogCount > 0;
     for (let i = renderedLogCount; i < log.length; i++) {
       let e = log[i];
       let continued = !e.marker && !!e.name && e.name === lastRenderedSpeaker;
-      ui.settledEl.appendChild(buildEntryNode(doc, e, continued, false));
+      let node = buildEntryNode(doc, e, continued, false);
+      if (animateNew && !e.marker) {
+        node.classList.add('__zt-entry--just-logged');
+        node.addEventListener('animationend', function () {
+          node.classList.remove('__zt-entry--just-logged');
+        }, { once: true });
+      }
+      ui.settledEl.appendChild(node);
       lastRenderedSpeaker = e.marker ? null : (e.name || null);
     }
     renderedLogCount = log.length;
