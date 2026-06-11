@@ -755,7 +755,6 @@
         --zt-text-secondary:      #6b7280;
         --zt-text-dim:            #9ca3af;
         --zt-text-msg:            #374151;
-        --zt-text-pending-msg:    #c9cdd6;
         --zt-text-marker:         #9ca3af;
         --zt-text-idle:           rgba(0,0,0,0.3);
         --zt-text-idle-strong:    #2563eb;
@@ -823,7 +822,6 @@
         --zt-text-secondary:      #9aa3af;
         --zt-text-dim:            #4b5563;
         --zt-text-msg:            #d1d5db;
-        --zt-text-pending-msg:    #4b5563;
         --zt-text-marker:         #6b7280;
         --zt-text-idle:           rgba(255,255,255,0.35);
         --zt-text-idle-strong:    #7dd3fc;
@@ -912,15 +910,23 @@
         position: absolute;
         top: 0;
         bottom: 0;
-        right: -3px;
-        width: 8px;
+        right: -8px;
+        width: 16px;
         cursor: ew-resize;
-        border-radius: 4px;
         z-index: 1;
+      }
+      .__zt-resize-handle::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 5px;
+        width: 4px;
+        border-radius: 2px;
         transition: background 0.15s;
       }
-      .__zt-resize-handle:hover,
-      .__zt-resize-handle.active { background: var(--zt-icon-btn-active-border); }
+      .__zt-resize-handle:hover::after,
+      .__zt-resize-handle.active::after { background: var(--zt-icon-btn-active-border); }
       .live-transcription-subtitle__box:has(.__zt-caption-mount) {
         flex-wrap: wrap;
         align-items: stretch;
@@ -975,19 +981,21 @@
       @keyframes __zt-blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
       .__zt-session-name {
         flex: 1;
-        background: transparent;
-        border: none;
-        outline: none;
         color: var(--zt-session-color);
         font-size: 12px;
         font-weight: 600;
-        cursor: text;
+        cursor: pointer;
         min-width: 0;
-        caret-color: var(--zt-tab-active-line);
-        font-family: inherit;
-        padding: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        border-radius: 4px;
+        padding: 3px 4px;
+        margin: -3px -4px;
+        transition: background 0.15s;
       }
-      .__zt-session-name::placeholder { color: var(--zt-session-placeholder); font-weight: 400; }
+      .__zt-session-name:hover { background: var(--zt-btn-bg); }
+      .__zt-session-name--empty { color: var(--zt-session-placeholder); font-weight: 400; font-style: italic; }
       .__zt-meta {
         display: flex;
         align-items: center;
@@ -1158,9 +1166,11 @@
       }
       .__zt-entry--continued .__zt-entry-header { display: none; }
       .__zt-entry--show-name .__zt-entry-header { display: flex; }
-      .__zt-entry--pending .__zt-entry-time,
-      .__zt-entry--pending .__zt-entry-name { opacity: 0.4; }
-      .__zt-entry--pending .__zt-entry-msg { color: var(--zt-text-pending-msg); }
+      .__zt-entry-logged {
+        flex-shrink: 0;
+        align-self: center;
+        display: block;
+      }
       .__zt-idle {
         color: var(--zt-text-idle);
         font-style: italic;
@@ -1438,7 +1448,7 @@
     mount.innerHTML = [
       '<div class="__zt-header">',
         '<div id="__zt-dot" class="__zt-dot __zt-dot--waiting"></div>',
-        '<input id="__zt-session-name" class="__zt-session-name" placeholder="Name this meeting…" spellcheck="false">',
+        '<div id="__zt-session-name" class="__zt-session-name" title="Click to name this meeting"></div>',
         '<div class="__zt-meta">',
           '<span id="__zt-timer" class="__zt-timer">0:00</span>',
         '</div>',
@@ -1496,12 +1506,22 @@
       p.style.display = p.getAttribute('data-panel') === activeTab ? '' : 'none';
     });
 
-    let nameInput = mount.querySelector('#__zt-session-name');
-    nameInput.value = sessionName;
-    nameInput.addEventListener('input', function () {
-      sessionName = nameInput.value;
+    let nameEl = mount.querySelector('#__zt-session-name');
+    function syncNameDisplay() {
+      nameEl.textContent = sessionName || 'Name this meeting…';
+      nameEl.classList.toggle('__zt-session-name--empty', !sessionName);
+    }
+    syncNameDisplay();
+    nameEl.onclick = function () {
+      // Native dialog avoids Zoom's draggable/hotkey interference with
+      // inline inputs inside the caption panel.
+      let win = doc.defaultView || window;
+      let v = win.prompt('Name this meeting:', sessionName);
+      if (v === null) return;
+      sessionName = v.trim();
       localStorage.setItem(sessionKey, sessionName);
-    });
+      syncNameDisplay();
+    };
 
     let searchInput = mount.querySelector('#__zt-search-input');
     searchInput.value = searchQuery;
@@ -1761,12 +1781,19 @@
       // Name (with timestamp) on its own header line; the message block below
       // shares a single left edge. Continued entries hide the header — search
       // reveal (--show-name) brings back that entry's own time + name.
+      let loggedBadge = !pending
+        ? '<svg class="__zt-entry-logged" viewBox="0 0 10 10" width="9" height="9" aria-hidden="true">' +
+            '<circle cx="5" cy="5" r="5" fill="#22c55e"/>' +
+            '<path d="M2.8 5.2 4.3 6.7 7.2 3.6" stroke="#fff" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>' +
+          '</svg>'
+        : '';
       item.innerHTML =
         '<div class="__zt-entry-header">' +
           timeHtml +
           (e.name
             ? '<span class="__zt-entry-name" style="color:' + getSpeakerColor(e.name) + '">' + escapeHtml(e.name) + '</span>'
             : '') +
+          loggedBadge +
         '</div>' +
         msgHtml;
     }
