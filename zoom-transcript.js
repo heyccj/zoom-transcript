@@ -53,7 +53,12 @@
     result.forEach(function (e) {
       e.key = makeKey(e.time, e.name, e.msg);
     });
-    return result;
+    let keySeen = new Set();
+    return result.filter(function (e) {
+      if (keySeen.has(e.key)) return false;
+      keySeen.add(e.key);
+      return true;
+    });
   }
 
   function getMeetingId(win) {
@@ -234,6 +239,7 @@
 
   function linesFromAllMessages(state, names) {
     let rows = [];
+    let seenKeys = new Set();
 
     ltBuckets(state).forEach(function (lt) {
       if (!lt || !lt.allMessages) return;
@@ -245,9 +251,14 @@
         if (!msg) return;
         let text = normalizeText(msg.message || msg.decryptedMessage || msg.text);
         if (!text) return;
+        let time = msg.messageTime ? formatTime(msg.messageTime) : '';
+        let name = resolveName(msg, names);
+        let key = makeKey(time, name, text);
+        if (seenKeys.has(key)) return;
+        seenKeys.add(key);
         rows.push({
-          time: msg.messageTime ? formatTime(msg.messageTime) : '',
-          name: resolveName(msg, names),
+          time: time,
+          name: name,
           msg: text,
           src: 'allMessages',
           finished: msg.isFinished !== false
@@ -1912,6 +1923,10 @@
     let animateNew = renderedLogCount > 0;
     for (let i = renderedLogCount; i < log.length; i++) {
       let e = log[i];
+      // Guard against duplicate DOM nodes when two recorder instances briefly
+      // share the same caption mount (e.g. parent shell + iframe inject).
+      let existing = ui.settledEl.querySelector('[data-key="' + e.key.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"]');
+      if (existing) continue;
       let continued = !e.marker && !!e.name && e.name === lastRenderedSpeaker;
       let node = buildEntryNode(doc, e, continued, false);
       if (animateNew && !e.marker) {
@@ -2453,6 +2468,39 @@
     } else if (boot.textContent) {
       tryInjectIntoIframe(boot.textContent);
     }
+  }
+
+  // Parent shell only bootstraps the iframe copy — running the full recorder
+  // here too would double-ingest captions and double-render the log.
+  if (isParentShell()) {
+    let bootScript = document.currentScript;
+    let injectRetry = setInterval(function () {
+      let win = getWebclientWindow();
+      if (win.__ztCaptionLoaded) {
+        clearInterval(injectRetry);
+        return;
+      }
+      if (pendingInjectSource) tryInjectIntoIframe(pendingInjectSource);
+      else if (bootScript && bootScript.textContent) tryInjectIntoIframe(bootScript.textContent);
+    }, 500);
+    setTimeout(function () { clearInterval(injectRetry); }, 60000);
+
+    window.__ztCaption = {
+      getLog: function () {
+        let cap = getWebclientWindow().__ztCaption;
+        return cap ? cap.getLog() : [];
+      },
+      probe: function () {
+        let cap = getWebclientWindow().__ztCaption;
+        return cap ? cap.probe() : { error: 'iframe recorder not loaded yet' };
+      },
+      findStore: function () {
+        return findReduxStore(getWebclientWindow().document);
+      }
+    };
+
+    console.info('[ZT Captions] Parent shell bootstrap — recorder runs in #webclient iframe.');
+    return window.__ztCaption;
   }
 
   // pollStore drives the panel watcher each tick via updateUI -> watchCaptionPanel.
