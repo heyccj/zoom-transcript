@@ -337,6 +337,7 @@
   const storageKey = '__ztCaptionLog';
   const meetingKey = '__ztCaptionMeetingId';
   const sessionKey = '__ztCaptionSession';
+  const autoDownloadKey = '__ztCaptionAutoDownloaded';
   const darkKey = '__ztCaptionDark';
   const collapsedKey = '__ztCaptionCollapsed';
   const widthKey = '__ztCaptionWidth';
@@ -350,6 +351,7 @@
   if (localStorage.getItem(meetingKey) !== meetingId) {
     localStorage.removeItem(storageKey);
     localStorage.removeItem(sessionKey);
+    localStorage.removeItem(autoDownloadKey);
   }
   localStorage.setItem(meetingKey, meetingId);
 
@@ -373,9 +375,13 @@
   let attachDockLogged = false;
   let captionDomObserver = null;
   let autoDownloadDoc = null;
+  let autoDownloadWin = null;
   let meetingExitClickHandler = null;
+  let tabCloseBeforeUnloadHandler = null;
+  let tabClosePageHideHandler = null;
   let hostEndedObserver = null;
-  let lastAutoDownloadAt = 0;
+  let hostEndedTimer = null;
+  let hostEndedTriggered = false;
   let speakerColorMap = {};
   let speakerColorIdx = 0;
   let sessionName = localStorage.getItem(sessionKey) || '';
@@ -2334,6 +2340,26 @@
     return body;
   }
 
+  function currentSessionName() {
+    return sessionName || localStorage.getItem(sessionKey) || '';
+  }
+
+  function autoDownloadAlreadyHandled() {
+    return localStorage.getItem(autoDownloadKey) === meetingId;
+  }
+
+  function claimAutoDownload() {
+    if (autoDownloadAlreadyHandled()) return false;
+    localStorage.setItem(autoDownloadKey, meetingId);
+    return true;
+  }
+
+  function releaseAutoDownloadClaim() {
+    if (localStorage.getItem(autoDownloadKey) === meetingId) {
+      localStorage.removeItem(autoDownloadKey);
+    }
+  }
+
   function slugify(s) {
     return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
   }
@@ -2341,7 +2367,7 @@
   function downloadFilename(ext) {
     let d = new Date();
     function pad(n) { return (n < 10 ? '0' : '') + n; }
-    let prefix = slugify(sessionName) || 'captions';
+    let prefix = slugify(currentSessionName()) || 'captions';
     return prefix + '-' + d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + '-' +
       pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds()) + '.' + (ext || 'txt');
   }
@@ -2353,7 +2379,7 @@
       return;
     }
     let payload = {
-      session: sessionName || null,
+      session: currentSessionName() || null,
       exportedAt: new Date().toISOString(),
       talkTime: talkTimeSummary(),
       entries: log.map(function (e) {
@@ -2377,11 +2403,17 @@
     let isAuto = !!options.auto;
     let reason = options.reason || 'manual';
 
-    if (isAuto && Date.now() - lastAutoDownloadAt < 5000) return false;
+    if (isAuto) {
+      if (!claimAutoDownload()) {
+        console.info('[ZT Captions] Auto-download already handled for this meeting.');
+        return false;
+      }
+    }
 
     flushPending();
     let text = formatOutput();
     if (!text) {
+      if (isAuto) releaseAutoDownloadClaim();
       if (!isAuto) alert('No captions captured yet. Try __ztCaption.probe() in console.');
       return false;
     }
@@ -2392,7 +2424,6 @@
     a.click();
 
     if (isAuto) {
-      lastAutoDownloadAt = Date.now();
       resetLog();
       localStorage.removeItem(meetingKey);
       console.info('[ZT Captions] Downloaded captions (' + reason + ') — log cleared for next meeting.');
@@ -2417,14 +2448,33 @@
     return null;
   }
 
+  function hasTranscriptToSave() {
+    if (log.length) return true;
+    return !!(pendingLines && pendingLines.length);
+  }
+
   function teardownAutoDownloadHooks() {
     if (autoDownloadDoc && meetingExitClickHandler) {
       autoDownloadDoc.removeEventListener('click', meetingExitClickHandler, true);
     }
     if (hostEndedObserver) hostEndedObserver.disconnect();
+    if (hostEndedTimer) clearTimeout(hostEndedTimer);
+    if (autoDownloadWin) {
+      if (tabCloseBeforeUnloadHandler) {
+        autoDownloadWin.removeEventListener('beforeunload', tabCloseBeforeUnloadHandler);
+      }
+      if (tabClosePageHideHandler) {
+        autoDownloadWin.removeEventListener('pagehide', tabClosePageHideHandler);
+      }
+    }
     autoDownloadDoc = null;
+    autoDownloadWin = null;
     meetingExitClickHandler = null;
+    tabCloseBeforeUnloadHandler = null;
+    tabClosePageHideHandler = null;
     hostEndedObserver = null;
+    hostEndedTimer = null;
+    hostEndedTriggered = false;
   }
 
   function setupAutoDownloadHooks(doc) {
@@ -2438,18 +2488,47 @@
     doc.addEventListener('click', meetingExitClickHandler, true);
 
     hostEndedObserver = new MutationObserver(function () {
+      if (hostEndedTriggered || autoDownloadAlreadyHandled()) return;
       let nodes = doc.querySelectorAll(
         '.zm-modal-body-title, .zm-modal-body-content, .confirm-modal-content, [role="dialog"]'
       );
       for (let i = 0; i < nodes.length; i++) {
         let t = nodes[i].textContent || '';
         if (/meeting has been ended by the host/i.test(t) || /ended by host/i.test(t)) {
-          downloadCaptions({ auto: true, reason: 'host-ended' });
+          if (hostEndedTimer) clearTimeout(hostEndedTimer);
+          hostEndedTimer = setTimeout(function () {
+            hostEndedTimer = null;
+            if (hostEndedTriggered || autoDownloadAlreadyHandled()) return;
+            hostEndedTriggered = true;
+            downloadCaptions({ auto: true, reason: 'host-ended' });
+          }, 400);
           return;
         }
       }
     });
     hostEndedObserver.observe(doc.body, { childList: true, subtree: true });
+
+    // Warn on tab/window close when captions haven't been saved yet; auto-download
+    // on actual unload (pagehide). beforeunload can't run custom downloads in
+    // modern Chrome, but pagehide still gets a best-effort save attempt.
+    let win = doc.defaultView;
+    if (win) {
+      tabCloseBeforeUnloadHandler = function (e) {
+        if (autoDownloadAlreadyHandled() || !hasTranscriptToSave()) return;
+        e.preventDefault();
+        e.returnValue = '';
+      };
+      tabClosePageHideHandler = function (e) {
+        if (e.persisted || autoDownloadAlreadyHandled()) return;
+        flushPending();
+        if (!hasTranscriptToSave()) return;
+        downloadCaptions({ auto: true, reason: 'tab-close' });
+      };
+      win.addEventListener('beforeunload', tabCloseBeforeUnloadHandler);
+      win.addEventListener('pagehide', tabClosePageHideHandler);
+      autoDownloadWin = win;
+    }
+
     autoDownloadDoc = doc;
   }
 
