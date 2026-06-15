@@ -1528,9 +1528,167 @@
     });
   }
 
+  function syncPrefsFromStorage() {
+    darkMode = localStorage.getItem(darkKey) === '1';
+    collapsed = localStorage.getItem(collapsedKey) === '1';
+  }
+
+  function mountIsHealthy(doc) {
+    let mount = doc.getElementById('__zt-caption-mount');
+    let pill = doc.getElementById('__zt-pill');
+    if (!mount || !pill || !mount.isConnected || !pill.isConnected) return false;
+    let box = findCaptionBox(doc);
+    if (box) return mount.parentElement === box && pill.parentElement === box;
+    let dock = doc.getElementById('__zt-caption-dock');
+    return !!(dock && mount.parentElement === dock && pill.parentElement === dock);
+  }
+
+  function ensureUiRefs(doc) {
+    let mount = doc.getElementById('__zt-caption-mount');
+    let pill = doc.getElementById('__zt-pill');
+    if (!mount || !pill) return false;
+    let box = findCaptionBox(doc);
+    let dock = doc.getElementById('__zt-caption-dock');
+    ui = ui || {};
+    ui.mount = mount;
+    ui.pill = pill;
+    ui.dock = dock;
+    ui.dot = mount.querySelector('#__zt-dot');
+    ui.timerEl = mount.querySelector('#__zt-timer');
+    ui.modeBtn = mount.querySelector('#__zt-mode-btn');
+    ui.pausedBanner = mount.querySelector('#__zt-paused-banner');
+    ui.logEntriesEl = mount.querySelector('#__zt-log-entries');
+    ui.settledEl = mount.querySelector('#__zt-settled');
+    ui.pendingEl = mount.querySelector('#__zt-pending');
+    ui.idleEl = mount.querySelector('#__zt-idle');
+    ui.statsRowsEl = mount.querySelector('#__zt-stats-rows');
+    ui.statsMetaEl = mount.querySelector('#__zt-stats-meta');
+    ui.pauseBtn = mount.querySelector('#__zt-pause-btn');
+    ui.copyBtn = mount.querySelector('#__zt-copy-btn');
+    ui.searchInput = mount.querySelector('#__zt-search-input');
+    ui.pillDot = pill.querySelector('#__zt-pill-dot');
+    ui.pillChip = pill.querySelector('#__zt-pill-chip');
+    ui.pillChipDot = pill.querySelector('#__zt-pill-chip-dot');
+    ui.pillChipName = pill.querySelector('#__zt-pill-chip-name');
+    ui.pillSpeaking = pill.querySelector('#__zt-pill-speaking');
+    ui.pillMeta = pill.querySelector('#__zt-pill-meta');
+    ui.usingBox = !!box;
+    return true;
+  }
+
+  function wireMountEvents(mount, doc) {
+    mount.querySelectorAll('.__zt-tab').forEach(function (t) {
+      t.classList.toggle('active', t.getAttribute('data-tab') === activeTab);
+      t.onclick = function () { switchTab(t.getAttribute('data-tab')); };
+    });
+    mount.querySelectorAll('.__zt-tab-panel').forEach(function (p) {
+      p.style.display = p.getAttribute('data-panel') === activeTab ? '' : 'none';
+    });
+
+    let nameEl = mount.querySelector('#__zt-session-name');
+    function syncNameDisplay() {
+      nameEl.textContent = sessionName || 'Name this meeting…';
+      nameEl.classList.toggle('__zt-session-name--empty', !sessionName);
+    }
+    syncNameDisplay();
+    nameEl.onclick = function () {
+      let win = doc.defaultView || window;
+      let v = win.prompt('Name this meeting:', sessionName);
+      if (v === null) return;
+      sessionName = v.trim();
+      localStorage.setItem(sessionKey, sessionName);
+      syncNameDisplay();
+    };
+
+    let searchInput = mount.querySelector('#__zt-search-input');
+    searchInput.value = searchQuery;
+    searchInput.addEventListener('input', function () {
+      searchQuery = searchInput.value;
+      applyLogFilter();
+    });
+
+    mount.querySelector('#__zt-mode-btn').textContent = darkMode ? '🌙' : '☀︎';
+    mount.querySelector('#__zt-mode-btn').onclick = toggleMode;
+    mount.querySelector('#__zt-collapse-btn').onclick = function () { setCollapsed(true); };
+    mount.querySelector('#__zt-pause-btn').onclick = togglePause;
+    mount.querySelector('#__zt-banner-resume').onclick = function () { setPaused(false); };
+    mount.querySelector('#__zt-copy-btn').onclick = onCopyClick;
+    mount.querySelector('#__zt-stop-btn').onclick = shutdown;
+
+    let dropdown = mount.querySelector('#__zt-dropdown');
+    mount.querySelector('#__zt-download-btn').onclick = function (ev) {
+      ev.stopPropagation();
+      let open = dropdown.classList.toggle('open');
+      if (open) {
+        let close = function (e2) {
+          if (!dropdown.contains(e2.target)) {
+            dropdown.classList.remove('open');
+            doc.removeEventListener('click', close, true);
+          }
+        };
+        doc.addEventListener('click', close, true);
+      }
+    };
+    dropdown.querySelector('[data-format="txt"]').onclick = function () {
+      dropdown.classList.remove('open');
+      downloadCaptions({ auto: false, reason: 'manual' });
+    };
+    dropdown.querySelector('[data-format="json"]').onclick = function () {
+      dropdown.classList.remove('open');
+      downloadJson();
+    };
+
+    ['left', 'right', 'top', 'bottom'].forEach(function (side) {
+      let horiz = side === 'left' || side === 'right';
+      let sign = (side === 'left' || side === 'top') ? -1 : 1;
+      let handle = doc.createElement('div');
+      handle.className = '__zt-resize-handle __zt-resize-handle--' + side;
+      handle.title = 'Drag to resize';
+      mount.appendChild(handle);
+      handle.addEventListener('mousedown', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        let start = horiz ? e.clientX : e.clientY;
+        let startVal = horiz ? panelWidth : logHeight;
+        handle.classList.add('active');
+        function onMove(ev) {
+          ev.preventDefault();
+          let delta = sign * ((horiz ? ev.clientX : ev.clientY) - start);
+          if (horiz) {
+            panelWidth = Math.max(MIN_PANEL_WIDTH, Math.min(MAX_PANEL_WIDTH, startVal + delta));
+            applyPanelWidth(doc);
+          } else {
+            logHeight = Math.max(MIN_LOG_HEIGHT, Math.min(MAX_LOG_HEIGHT, startVal + delta));
+            applyLogHeight(doc);
+          }
+        }
+        function onUp() {
+          doc.removeEventListener('mousemove', onMove, true);
+          doc.removeEventListener('mouseup', onUp, true);
+          handle.classList.remove('active');
+          if (horiz) localStorage.setItem(widthKey, String(panelWidth));
+          else localStorage.setItem(heightKey, String(logHeight));
+        }
+        doc.addEventListener('mousemove', onMove, true);
+        doc.addEventListener('mouseup', onUp, true);
+      });
+    });
+
+    shieldInputEvents(mount.querySelector('#__zt-search-input'));
+  }
+
   function createMount(doc) {
     ensureStyles(doc);
-    let mount = doc.createElement('div');
+    let mount = doc.getElementById('__zt-caption-mount');
+    if (mount) {
+      if (!mount.dataset.ztBound) {
+        mount.dataset.ztBound = '1';
+        wireMountEvents(mount, doc);
+      }
+      return mount;
+    }
+
+    mount = doc.createElement('div');
     mount.id = '__zt-caption-mount';
     mount.className = '__zt-caption-mount' + (darkMode ? ' __zt-dark' : '');
     if (collapsed) mount.style.display = 'none';
@@ -1586,117 +1744,23 @@
       '</div>'
     ].join('');
 
-    // Restore active tab on (re)creation
-    mount.querySelectorAll('.__zt-tab').forEach(function (t) {
-      t.classList.toggle('active', t.getAttribute('data-tab') === activeTab);
-      t.onclick = function () { switchTab(t.getAttribute('data-tab')); };
-    });
-    mount.querySelectorAll('.__zt-tab-panel').forEach(function (p) {
-      p.style.display = p.getAttribute('data-panel') === activeTab ? '' : 'none';
-    });
-
-    let nameEl = mount.querySelector('#__zt-session-name');
-    function syncNameDisplay() {
-      nameEl.textContent = sessionName || 'Name this meeting…';
-      nameEl.classList.toggle('__zt-session-name--empty', !sessionName);
-    }
-    syncNameDisplay();
-    nameEl.onclick = function () {
-      // Native dialog avoids Zoom's draggable/hotkey interference with
-      // inline inputs inside the caption panel.
-      let win = doc.defaultView || window;
-      let v = win.prompt('Name this meeting:', sessionName);
-      if (v === null) return;
-      sessionName = v.trim();
-      localStorage.setItem(sessionKey, sessionName);
-      syncNameDisplay();
-    };
-
-    let searchInput = mount.querySelector('#__zt-search-input');
-    searchInput.value = searchQuery;
-    searchInput.addEventListener('input', function () {
-      searchQuery = searchInput.value;
-      applyLogFilter();
-    });
-
-    mount.querySelector('#__zt-mode-btn').textContent = darkMode ? '🌙' : '☀︎';
-    mount.querySelector('#__zt-mode-btn').onclick = toggleMode;
-    mount.querySelector('#__zt-collapse-btn').onclick = function () { setCollapsed(true); };
-    mount.querySelector('#__zt-pause-btn').onclick = togglePause;
-    mount.querySelector('#__zt-banner-resume').onclick = function () { setPaused(false); };
-    mount.querySelector('#__zt-copy-btn').onclick = onCopyClick;
-    mount.querySelector('#__zt-stop-btn').onclick = shutdown;
-
-    let dropdown = mount.querySelector('#__zt-dropdown');
-    mount.querySelector('#__zt-download-btn').onclick = function (ev) {
-      ev.stopPropagation();
-      let open = dropdown.classList.toggle('open');
-      if (open) {
-        let close = function (e2) {
-          if (!dropdown.contains(e2.target)) {
-            dropdown.classList.remove('open');
-            doc.removeEventListener('click', close, true);
-          }
-        };
-        doc.addEventListener('click', close, true);
-      }
-    };
-    dropdown.querySelector('[data-format="txt"]').onclick = function () {
-      dropdown.classList.remove('open');
-      downloadCaptions({ auto: false, reason: 'manual' });
-    };
-    dropdown.querySelector('[data-format="json"]').onclick = function () {
-      dropdown.classList.remove('open');
-      downloadJson();
-    };
-
-    // Edge drag handles on all four sides: left/right resize the panel
-    // width, top/bottom resize the transcript height (header and footer keep
-    // their natural size). Left/top invert the delta so the grabbed edge
-    // follows the mouse.
-    ['left', 'right', 'top', 'bottom'].forEach(function (side) {
-      let horiz = side === 'left' || side === 'right';
-      let sign = (side === 'left' || side === 'top') ? -1 : 1;
-      let handle = doc.createElement('div');
-      handle.className = '__zt-resize-handle __zt-resize-handle--' + side;
-      handle.title = 'Drag to resize';
-      mount.appendChild(handle);
-      handle.addEventListener('mousedown', function (e) {
-        e.preventDefault();
-        e.stopPropagation();
-        let start = horiz ? e.clientX : e.clientY;
-        let startVal = horiz ? panelWidth : logHeight;
-        handle.classList.add('active');
-        function onMove(ev) {
-          ev.preventDefault();
-          let delta = sign * ((horiz ? ev.clientX : ev.clientY) - start);
-          if (horiz) {
-            panelWidth = Math.max(MIN_PANEL_WIDTH, Math.min(MAX_PANEL_WIDTH, startVal + delta));
-            applyPanelWidth(doc);
-          } else {
-            logHeight = Math.max(MIN_LOG_HEIGHT, Math.min(MAX_LOG_HEIGHT, startVal + delta));
-            applyLogHeight(doc);
-          }
-        }
-        function onUp() {
-          doc.removeEventListener('mousemove', onMove, true);
-          doc.removeEventListener('mouseup', onUp, true);
-          handle.classList.remove('active');
-          if (horiz) localStorage.setItem(widthKey, String(panelWidth));
-          else localStorage.setItem(heightKey, String(logHeight));
-        }
-        doc.addEventListener('mousemove', onMove, true);
-        doc.addEventListener('mouseup', onUp, true);
-      });
-    });
-
-    shieldInputEvents(mount.querySelector('#__zt-search-input'));
+    mount.dataset.ztBound = '1';
+    wireMountEvents(mount, doc);
     return mount;
   }
 
   function createPill(doc) {
     ensureStyles(doc);
-    let pill = doc.createElement('div');
+    let pill = doc.getElementById('__zt-pill');
+    if (pill) {
+      if (!pill.dataset.ztBound) {
+        pill.dataset.ztBound = '1';
+        pill.onclick = function () { setCollapsed(false); };
+      }
+      return pill;
+    }
+
+    pill = doc.createElement('div');
     pill.id = '__zt-pill';
     pill.className = '__zt-pill' + (darkMode ? ' __zt-dark' : '');
     pill.style.display = collapsed ? 'flex' : 'none';
@@ -1714,6 +1778,7 @@
     ].join('');
 
     pill.onclick = function () { setCollapsed(false); };
+    pill.dataset.ztBound = '1';
     return pill;
   }
 
@@ -1745,15 +1810,25 @@
     return dock;
   }
 
+  let boxAttachTimer = null;
+
+  function scheduleAttachIfNeeded(doc, box) {
+    if (boxAttachTimer) clearTimeout(boxAttachTimer);
+    boxAttachTimer = setTimeout(function () {
+      boxAttachTimer = null;
+      let mount = doc.getElementById('__zt-caption-mount');
+      if (!mount || !mount.isConnected || mount.parentElement !== box) {
+        attachMount(doc);
+      }
+    }, 50);
+  }
+
   function observeCaptionBox(doc, box) {
     if (ui && ui.boxObserver && ui.observedBox === box) return;
 
     if (ui && ui.boxObserver) ui.boxObserver.disconnect();
     let obs = new MutationObserver(function () {
-      let mount = doc.getElementById('__zt-caption-mount');
-      if (!mount || !mount.isConnected || mount.parentElement !== box) {
-        attachMount(doc);
-      }
+      scheduleAttachIfNeeded(doc, box);
     });
     obs.observe(box, { childList: true });
     if (!ui) ui = {};
@@ -1809,30 +1884,7 @@
 
     startCaptionDomWatch(doc);
 
-    ui = ui || {};
-    ui.mount = mount;
-    ui.pill = pill;
-    ui.dock = dock;
-    ui.dot = mount.querySelector('#__zt-dot');
-    ui.timerEl = mount.querySelector('#__zt-timer');
-    ui.modeBtn = mount.querySelector('#__zt-mode-btn');
-    ui.pausedBanner = mount.querySelector('#__zt-paused-banner');
-    ui.logEntriesEl = mount.querySelector('#__zt-log-entries');
-    ui.settledEl = mount.querySelector('#__zt-settled');
-    ui.pendingEl = mount.querySelector('#__zt-pending');
-    ui.idleEl = mount.querySelector('#__zt-idle');
-    ui.statsRowsEl = mount.querySelector('#__zt-stats-rows');
-    ui.statsMetaEl = mount.querySelector('#__zt-stats-meta');
-    ui.pauseBtn = mount.querySelector('#__zt-pause-btn');
-    ui.copyBtn = mount.querySelector('#__zt-copy-btn');
-    ui.searchInput = mount.querySelector('#__zt-search-input');
-    ui.pillDot = pill.querySelector('#__zt-pill-dot');
-    ui.pillChip = pill.querySelector('#__zt-pill-chip');
-    ui.pillChipDot = pill.querySelector('#__zt-pill-chip-dot');
-    ui.pillChipName = pill.querySelector('#__zt-pill-chip-name');
-    ui.pillSpeaking = pill.querySelector('#__zt-pill-speaking');
-    ui.pillMeta = pill.querySelector('#__zt-pill-meta');
-    ui.usingBox = usingBox;
+    ensureUiRefs(doc);
 
     applyMode();
     applyCollapsed();
@@ -1859,7 +1911,13 @@
     setupAutoDownloadHooks(doc);
     tryShowCaptions(doc);
     startCaptionsAutoEnable(doc);
-    attachMount(doc);
+    if (!mountIsHealthy(doc)) {
+      attachMount(doc);
+    } else {
+      ensureUiRefs(doc);
+      applyMode();
+      applyCollapsed();
+    }
   }
 
   // ─── Log rendering ───────────────────────────────────────────────────────
@@ -2105,6 +2163,7 @@
 
   // ─── Light/dark mode ─────────────────────────────────────────────────────
   function applyMode() {
+    syncPrefsFromStorage();
     if (!ui) return;
     [ui.mount, ui.pill, ui.dock].forEach(function (el) {
       if (el) el.classList.toggle('__zt-dark', darkMode);
@@ -2115,18 +2174,20 @@
   function toggleMode() {
     darkMode = !darkMode;
     localStorage.setItem(darkKey, darkMode ? '1' : '');
-    // Speaker colors are baked into rendered rows — rebuild the log.
     if (ui && ui.settledEl) {
       ui.settledEl.innerHTML = '';
       renderedLogCount = 0;
       lastRenderedSpeaker = null;
     }
     applyMode();
-    updateUI();
+    renderLogItems();
+    renderPendingItems();
+    updatePill();
   }
 
   // ─── Collapse ────────────────────────────────────────────────────────────
   function applyCollapsed() {
+    syncPrefsFromStorage();
     if (!ui) return;
     if (ui.mount) ui.mount.style.display = collapsed ? 'none' : '';
     if (ui.pill) ui.pill.style.display = collapsed ? 'flex' : 'none';
@@ -2137,7 +2198,7 @@
     localStorage.setItem(collapsedKey, c ? '1' : '');
     applyCollapsed();
     if (!c) scrollLogToBottom();
-    updateUI();
+    updatePill();
   }
 
   // ─── Tabs ────────────────────────────────────────────────────────────────
