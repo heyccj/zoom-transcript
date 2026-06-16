@@ -1,7 +1,22 @@
 (function () {
+  function iframeRecorderRunning() {
+    try {
+      let iframe = document.getElementById('webclient');
+      return !!(iframe && iframe.contentWindow && iframe.contentWindow.__ztCaptionLoaded);
+    } catch (e) {
+      return false;
+    }
+  }
+
   if (window.__ztCaptionLoaded) {
-    console.warn('[ZT Captions] Already running in this frame.');
-    return window.__ztCaption;
+    // Parent bootstrap can leave this flag set after Stop in the iframe.
+    if (!iframeRecorderRunning()) {
+      window.__ztCaptionLoaded = false;
+      delete window.__ztCaption;
+    } else {
+      console.warn('[ZT Captions] Already running in this frame.');
+      return window.__ztCaption;
+    }
   }
   window.__ztCaptionLoaded = true;
 
@@ -1503,14 +1518,18 @@
   }
 
   function shutdown() {
+    flushPending();
     if (pollTimer) clearInterval(pollTimer);
+    pollTimer = null;
     if (settleTimer) clearTimeout(settleTimer);
+    settleTimer = null;
     if (captionsEnableTimer) clearInterval(captionsEnableTimer);
     captionsEnableTimer = null;
     if (elapsedTimer) clearInterval(elapsedTimer);
     elapsedTimer = null;
     if (ui && ui.boxObserver) ui.boxObserver.disconnect();
     if (captionDomObserver) captionDomObserver.disconnect();
+    captionDomObserver = null;
     teardownAutoDownloadHooks();
     let doc = activeDoc();
     ['__zt-caption-mount', '__zt-pill', '__zt-caption-dock', '__zt-caption-styles'].forEach(function (id) {
@@ -1518,8 +1537,32 @@
       if (el) el.remove();
     });
     doc.documentElement.style.removeProperty('--zt-panel-width');
+    doc.documentElement.style.removeProperty('--zt-log-height');
+    ui = null;
+    log = [];
+    seen = new Set();
+    pauseSkipped = new Set();
+    lastSnapshot = '';
+    renderedLogCount = 0;
+    lastRenderedSpeaker = null;
+    speakerColorMap = {};
+    speakerColorIdx = 0;
+    speakerStats = {};
+    prevSharers = null;
+    elapsedStart = null;
+    pendingLines = null;
+    localStorage.removeItem(storageKey);
+    localStorage.removeItem(meetingKey);
+    localStorage.removeItem(autoDownloadKey);
     window.__ztCaptionLoaded = false;
     delete window.__ztCaption;
+    try {
+      if (window.parent && window.parent !== window) {
+        window.parent.__ztCaptionLoaded = false;
+        delete window.parent.__ztCaption;
+      }
+    } catch (e) { /* cross-origin */ }
+    console.info('[ZT Captions] Stopped — click your bookmark to start a fresh transcript.');
   }
 
   // Zoom's caption box is a react-draggable with global hotkeys on the
@@ -1619,7 +1662,11 @@
     mount.querySelector('#__zt-pause-btn').onclick = togglePause;
     mount.querySelector('#__zt-banner-resume').onclick = function () { setPaused(false); };
     mount.querySelector('#__zt-copy-btn').onclick = onCopyClick;
-    mount.querySelector('#__zt-stop-btn').onclick = shutdown;
+    mount.querySelector('#__zt-stop-btn').onclick = function () {
+      let win = doc.defaultView || window;
+      if (!win.confirm('Stop recording and remove the caption widget? Your transcript will be cleared.')) return;
+      shutdown();
+    };
 
     let dropdown = mount.querySelector('#__zt-dropdown');
     mount.querySelector('#__zt-download-btn').onclick = function (ev) {
