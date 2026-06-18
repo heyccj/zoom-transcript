@@ -1,3 +1,4 @@
+/* Bundled at 2026-06-18T19:14:06Z */
 (() => {
   // src/constants.js
   var POLL_MS = 800;

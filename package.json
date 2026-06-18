@@ -2,8 +2,8 @@
   "name": "zoom-transcript",
   "private": true,
   "scripts": {
-    "build": "esbuild src/index.js --bundle --format=iife --outfile=zoom-transcript.js",
-    "watch": "esbuild src/index.js --bundle --format=iife --outfile=zoom-transcript.js --watch"
+    "build": "esbuild src/index.js --bundle --format=iife --outfile=zoom-transcript.js --banner:js=\"/* Bundled at $(date -u +%Y-%m-%dT%H:%M:%SZ) */\"",
+    "watch": "esbuild src/index.js --bundle --format=iife --outfile=zoom-transcript.js --watch --banner:js=\"/* Bundled at $(date -u +%Y-%m-%dT%H:%M:%SZ) */\""
   },
   "devDependencies": {
     "esbuild": "^0.25.0"
