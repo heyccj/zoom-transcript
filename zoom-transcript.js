@@ -61,7 +61,8 @@
           name: e.name,
           msg: e.msg,
           src: e.src,
-          marker: e.marker
+          marker: e.marker,
+          chat: e.chat
         });
       }
     });
@@ -329,6 +330,100 @@
     return linesFromMessageLatest(state);
   }
 
+  function meetingChatThreads(state) {
+    let nc = state.newChat;
+    if (nc && Array.isArray(nc.meetingChat)) return nc.meetingChat;
+    return [];
+  }
+
+  function chatMessageText(msg, thread) {
+    if (!msg) return '';
+    let text = normalizeText(msg.text || msg.message);
+    if (!text && msg.content) {
+      text = normalizeText(typeof msg.content === 'string' ? msg.content : msg.content.text);
+    }
+    if (!text && thread && !msg.msgId && !msg.id) {
+      text = normalizeText(thread.message);
+      if (!text && thread.content) {
+        text = normalizeText(typeof thread.content === 'string' ? thread.content : thread.content.text);
+      }
+    }
+    if (!text && msg.file) {
+      let file = msg.file;
+      let label = file.fileName || file.name || (file.file && file.file.name);
+      if (label) text = '[file: ' + label + ']';
+    }
+    return text;
+  }
+
+  function chatSenderName(thread, msg, names) {
+    let name = msg.senderName || thread.senderName || thread.sender || thread.chatSender;
+    if (name) return name;
+    let senderId = msg.senderId != null ? msg.senderId : thread.senderId;
+    if (senderId != null && names[senderId]) return names[senderId];
+    return null;
+  }
+
+  function chatAudienceLabel(thread, msg) {
+    let ext = msg.meetingChatExt || thread.meetingChatExt;
+    if (ext && ext.receiverName) return 'to ' + ext.receiverName;
+    if (thread.chatReceiver) return 'to ' + thread.chatReceiver;
+    if (thread.receiver) return 'to ' + thread.receiver;
+    if (ext && ext.isPrivately) return 'privately';
+    return null;
+  }
+
+  function chatMessageTime(thread, msg) {
+    let raw = msg.time || msg.timestamp || msg.timeStamp || msg.ct ||
+      thread.time || thread.timeStamp || thread.timestamp;
+    return raw ? formatTime(raw) : formatTime(Date.now());
+  }
+
+  function chatMessageId(thread, msg, text, time, name) {
+    return String(
+      msg.msgId || msg.id || msg.xmppMsgId || thread.msgId || thread.id ||
+      thread.xmppMsgId || makeKey(time, name, text)
+    );
+  }
+
+  function extractChatLines(state) {
+    let names = attendeeNameMap(state);
+    let rows = [];
+    let seenIds = new Set();
+
+    meetingChatThreads(state).forEach(function (thread) {
+      if (!thread) return;
+      let msgs = Array.isArray(thread.chatMsgs) && thread.chatMsgs.length
+        ? thread.chatMsgs
+        : [thread];
+
+      msgs.forEach(function (msg) {
+        if (!msg) return;
+        let text = chatMessageText(msg, thread);
+        if (!text) return;
+
+        let time = chatMessageTime(thread, msg);
+        let name = chatSenderName(thread, msg, names);
+        let audience = chatAudienceLabel(thread, msg);
+        let displayMsg = audience ? text + ' (' + audience + ')' : text;
+        let chatId = chatMessageId(thread, msg, text, time, name);
+        if (seenIds.has(chatId)) return;
+        seenIds.add(chatId);
+
+        rows.push({
+          time: time,
+          name: name,
+          msg: displayMsg,
+          src: 'chat',
+          chatId: chatId,
+          finished: true
+        });
+      });
+    });
+
+    return rows;
+  }
+
   function probeState(state) {
     let lt = ltBuckets(state);
     return {
@@ -342,6 +437,8 @@
         };
       }),
       messageLatest: !!(state.meeting && state.meeting.messageLatest),
+      chatThreads: meetingChatThreads(state).length,
+      chatLines: extractChatLines(state).length,
       lines: extractLines(state).slice(-5)
     };
   }
@@ -353,6 +450,7 @@
   const meetingKey = '__ztCaptionMeetingId';
   const sessionKey = '__ztCaptionSession';
   const autoDownloadKey = '__ztCaptionAutoDownloaded';
+  const bookmarksKey = '__ztCaptionBookmarks';
   const darkKey = '__ztCaptionDark';
   const collapsedKey = '__ztCaptionCollapsed';
   const widthKey = '__ztCaptionWidth';
@@ -367,6 +465,7 @@
     localStorage.removeItem(storageKey);
     localStorage.removeItem(sessionKey);
     localStorage.removeItem(autoDownloadKey);
+    localStorage.removeItem(bookmarksKey);
   }
   localStorage.setItem(meetingKey, meetingId);
 
@@ -408,6 +507,9 @@
   let elapsedTimer = null;
   let speakerStats = {};
   let searchQuery = '';
+  let bookmarkMode = false;
+  let bookmarks = [];
+  let bookmarkByKey = new Map();
   let panelWidth = (function () {
     let w = parseInt(localStorage.getItem(widthKey), 10);
     if (isNaN(w)) return CAPTION_PANEL_WIDTH;
@@ -448,10 +550,410 @@
   function rebuildSpeakerStats() {
     speakerStats = {};
     log.forEach(function (e) {
-      if (!e.name || e.marker) return;
+      if (!e.name || e.marker || e.chat) return;
       speakerStats[e.name] = (speakerStats[e.name] || 0) + 1;
     });
   }
+
+  function loadBookmarks() {
+    try {
+      bookmarks = JSON.parse(localStorage.getItem(bookmarksKey) || '[]');
+      if (!Array.isArray(bookmarks)) bookmarks = [];
+    } catch (e) {
+      bookmarks = [];
+    }
+    rebuildBookmarkByKey();
+  }
+
+  function persistBookmarks() {
+    localStorage.setItem(bookmarksKey, JSON.stringify(bookmarks));
+  }
+
+  function rebuildBookmarkByKey() {
+    bookmarkByKey = new Map();
+    bookmarks.forEach(function (b) {
+      if (b.entryKey && b.label) bookmarkByKey.set(b.entryKey, b.label);
+    });
+  }
+
+  function bookmarkIconHtml(size) {
+    size = size || 12;
+    return '<svg class="__zt-bookmark-icon" width="' + size + '" height="' + size + '" viewBox="0 0 16 16" fill="none" aria-hidden="true">' +
+      '<path d="M4 2.5h8v11l-4-3-4 3v-11z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>' +
+      '</svg>';
+  }
+
+  function setBookmarkBtnIcon(btn, size) {
+    if (!btn) return;
+    btn.innerHTML = bookmarkIconHtml(size || 12);
+  }
+
+  function findLogEntry(entryKey) {
+    for (let i = 0; i < log.length; i++) {
+      if (log[i].key === entryKey) return log[i];
+    }
+    return null;
+  }
+
+  function addBookmark(entryKey, label, entryHint) {
+    label = String(label || '').trim();
+    if (!label) return false;
+    let entry = entryHint || findLogEntry(entryKey);
+    if (!entry || entry.marker) return false;
+
+    for (let i = 0; i < bookmarks.length; i++) {
+      if (bookmarks[i].entryKey === entryKey && bookmarks[i].label === label) return false;
+    }
+
+    bookmarks.push({
+      id: 'bm-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+      label: label,
+      entryKey: entryKey,
+      time: entry.time || '',
+      speaker: entry.name || null,
+      preview: entry.msg ? entry.msg.slice(0, 80) : ''
+    });
+    rebuildBookmarkByKey();
+    persistBookmarks();
+    syncBookmarkMarkers();
+    return true;
+  }
+
+  function renameBookmark(entryKey, label) {
+    label = String(label || '').trim();
+    if (!label) return false;
+    let bm = null;
+    for (let i = 0; i < bookmarks.length; i++) {
+      if (bookmarks[i].entryKey === entryKey) {
+        bm = bookmarks[i];
+        break;
+      }
+    }
+    if (!bm) return false;
+    bm.label = label;
+    rebuildBookmarkByKey();
+    persistBookmarks();
+    syncBookmarkMarkers();
+    return true;
+  }
+
+  function removeBookmark(entryKey) {
+    let idx = -1;
+    for (let i = 0; i < bookmarks.length; i++) {
+      if (bookmarks[i].entryKey === entryKey) {
+        idx = i;
+        break;
+      }
+    }
+    if (idx < 0) return false;
+    bookmarks.splice(idx, 1);
+    rebuildBookmarkByKey();
+    persistBookmarks();
+    syncBookmarkMarkers();
+    return true;
+  }
+
+  function setBookmarkMode(on) {
+    bookmarkMode = !!on;
+    if (!bookmarkMode) hideBookmarkNameDialog();
+    if (!ui || !ui.mount) return;
+    ui.mount.classList.toggle('__zt-bookmark-mode', bookmarkMode);
+    if (ui.bookmarkBtn) {
+      ui.bookmarkBtn.classList.toggle('__zt-btn-icon--active', bookmarkMode);
+      ui.bookmarkBtn.title = bookmarkMode
+        ? 'Click a name or line to bookmark'
+        : 'Add bookmark';
+    }
+  }
+
+  function toggleBookmarkMode() {
+    setBookmarkMode(!bookmarkMode);
+  }
+
+  let bookmarkDialogCtx = null;
+
+  function hideBookmarkNameDialog() {
+    if (ui && ui.bookmarkDialog) ui.bookmarkDialog.style.display = 'none';
+    bookmarkDialogCtx = null;
+  }
+
+  function commitBookmarkNameDialog() {
+    if (!bookmarkDialogCtx || !ui || !ui.bookmarkInput) return;
+    let label = ui.bookmarkInput.value;
+    let ctx = bookmarkDialogCtx;
+    hideBookmarkNameDialog();
+    label = String(label || '').trim();
+    if (!label) return;
+    if (ctx.mode === 'edit') {
+      renameBookmark(ctx.entryKey, label);
+    } else if (ctx.callback) {
+      ctx.callback(label);
+    }
+  }
+
+  function removeBookmarkFromDialog() {
+    if (!bookmarkDialogCtx || bookmarkDialogCtx.mode !== 'edit') return;
+    let entryKey = bookmarkDialogCtx.entryKey;
+    hideBookmarkNameDialog();
+    removeBookmark(entryKey);
+  }
+
+  function openBookmarkDialog(mode, entryKey, entry, defaultLabel, callback) {
+    if (!ui || !ui.mount) {
+      if (callback) callback(null);
+      return;
+    }
+    ensureBookmarkDialogChrome(ui.mount, ui.mount.ownerDocument);
+    if (!ui.bookmarkDialog || !ui.bookmarkInput) {
+      let win = ui.mount.ownerDocument.defaultView || window;
+      let label = win.prompt(
+        mode === 'edit' ? 'Rename bookmark:' : 'Name this bookmark:',
+        defaultLabel || ''
+      );
+      if (label === null) return;
+      label = String(label).trim();
+      if (!label) return;
+      if (mode === 'edit') renameBookmark(entryKey, label);
+      else if (callback) callback(label);
+      return;
+    }
+    bookmarkDialogCtx = {
+      mode: mode,
+      entryKey: entryKey,
+      entry: entry,
+      callback: callback
+    };
+    if (ui.bookmarkDialogTitle) {
+      ui.bookmarkDialogTitle.textContent = mode === 'edit' ? 'Edit bookmark' : 'Name bookmark';
+    }
+    if (ui.bookmarkRemoveBtn) {
+      ui.bookmarkRemoveBtn.style.display = mode === 'edit' ? '' : 'none';
+    }
+    ui.bookmarkInput.value = defaultLabel || '';
+    ui.bookmarkDialog.style.display = 'flex';
+    ui.bookmarkInput.focus();
+    ui.bookmarkInput.select();
+  }
+
+  function showBookmarkNameDialog(defaultLabel, entryKey, entry, callback) {
+    openBookmarkDialog('add', entryKey, entry, defaultLabel, callback);
+  }
+
+  function showBookmarkEditDialog(entryKey, entry) {
+    openBookmarkDialog('edit', entryKey, entry, bookmarkByKey.get(entryKey) || '', null);
+  }
+
+  function ensureBookmarkDialogChrome(mount, doc) {
+    let dialog = mount.querySelector('#__zt-bookmark-dialog');
+    if (!dialog) return;
+    let title = dialog.querySelector('.__zt-bookmark-dialog-title');
+    if (title && !title.id) title.id = '__zt-bookmark-dialog-title';
+    let actions = dialog.querySelector('.__zt-bookmark-dialog-actions');
+    if (actions && !dialog.querySelector('#__zt-bookmark-remove')) {
+      let removeBtn = doc.createElement('button');
+      removeBtn.id = '__zt-bookmark-remove';
+      removeBtn.type = 'button';
+      removeBtn.className = '__zt-btn __zt-btn--stop';
+      removeBtn.textContent = 'Remove';
+      removeBtn.style.display = 'none';
+      let right = doc.createElement('div');
+      right.className = '__zt-bookmark-dialog-actions-right';
+      while (actions.firstChild) right.appendChild(actions.firstChild);
+      actions.appendChild(removeBtn);
+      actions.appendChild(right);
+      removeBtn.onclick = removeBookmarkFromDialog;
+    }
+    if (ui) {
+      ui.bookmarkDialogTitle = dialog.querySelector('#__zt-bookmark-dialog-title');
+      ui.bookmarkRemoveBtn = dialog.querySelector('#__zt-bookmark-remove');
+    }
+  }
+
+  function ensureBookmarkChip(row, key, label, doc) {
+    let chip = row.querySelector('.__zt-entry-bookmark');
+    if (!chip) {
+      chip = doc.createElement('button');
+      chip.type = 'button';
+      chip.className = '__zt-entry-bookmark';
+      chip.title = 'Rename or remove bookmark';
+      chip.addEventListener('mousedown', function (ev) { ev.stopPropagation(); });
+      let header = row.querySelector('.__zt-entry-header');
+      if (header) header.insertBefore(chip, header.firstChild);
+      else {
+        let msg = row.querySelector('.__zt-entry-msg');
+        if (msg) row.insertBefore(chip, msg);
+        else row.insertBefore(chip, row.firstChild);
+      }
+    }
+    chip.textContent = '';
+    let icon = chip.querySelector('.__zt-entry-bookmark-icon');
+    if (!icon) {
+      icon = doc.createElement('span');
+      icon.className = '__zt-entry-bookmark-icon';
+      chip.appendChild(icon);
+    }
+    icon.innerHTML = bookmarkIconHtml(10);
+    let labelEl = chip.querySelector('.__zt-entry-bookmark-label');
+    if (!labelEl) {
+      labelEl = doc.createElement('span');
+      labelEl.className = '__zt-entry-bookmark-label';
+      chip.appendChild(labelEl);
+    }
+    labelEl.textContent = label;
+    chip.setAttribute('data-entry-key', key);
+  }
+
+  function ensureBookmarkWiring(mount, doc) {
+    let modeBtn = mount.querySelector('#__zt-mode-btn');
+    let bookmarkBtn = mount.querySelector('#__zt-bookmark-btn');
+    if (!bookmarkBtn && modeBtn) {
+      bookmarkBtn = doc.createElement('button');
+      bookmarkBtn.id = '__zt-bookmark-btn';
+      bookmarkBtn.className = '__zt-btn-icon';
+      bookmarkBtn.type = 'button';
+      bookmarkBtn.title = 'Add bookmark';
+      setBookmarkBtnIcon(bookmarkBtn, 12);
+      modeBtn.parentNode.insertBefore(bookmarkBtn, modeBtn);
+    }
+    if (bookmarkBtn) {
+      bookmarkBtn.onclick = toggleBookmarkMode;
+      if (!bookmarkBtn.querySelector('.__zt-bookmark-icon')) setBookmarkBtnIcon(bookmarkBtn, 12);
+    }
+
+    let dialog = mount.querySelector('#__zt-bookmark-dialog');
+    if (!dialog) {
+      dialog = doc.createElement('div');
+      dialog.id = '__zt-bookmark-dialog';
+      dialog.className = '__zt-bookmark-dialog';
+      dialog.style.display = 'none';
+      dialog.setAttribute('role', 'dialog');
+      dialog.innerHTML =
+        '<div class="__zt-bookmark-dialog-card">' +
+          '<div id="__zt-bookmark-dialog-title" class="__zt-bookmark-dialog-title">Name bookmark</div>' +
+          '<input id="__zt-bookmark-input" type="text" spellcheck="false" placeholder="Bookmark label">' +
+          '<div class="__zt-bookmark-dialog-actions">' +
+            '<button id="__zt-bookmark-remove" type="button" class="__zt-btn __zt-btn--stop" style="display:none">Remove</button>' +
+            '<div class="__zt-bookmark-dialog-actions-right">' +
+              '<button id="__zt-bookmark-cancel" type="button" class="__zt-btn">Cancel</button>' +
+              '<button id="__zt-bookmark-save" type="button" class="__zt-btn __zt-btn--primary">Save</button>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+      mount.appendChild(dialog);
+    }
+    ensureBookmarkDialogChrome(mount, doc);
+    if (dialog && !dialog.dataset.ztDialogBound) {
+      dialog.dataset.ztDialogBound = '1';
+      let input = dialog.querySelector('#__zt-bookmark-input');
+      shieldInputEvents(input);
+      dialog.querySelector('#__zt-bookmark-save').onclick = commitBookmarkNameDialog;
+      dialog.querySelector('#__zt-bookmark-cancel').onclick = hideBookmarkNameDialog;
+      let removeBtn = dialog.querySelector('#__zt-bookmark-remove');
+      if (removeBtn) removeBtn.onclick = removeBookmarkFromDialog;
+      input.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Enter') {
+          ev.preventDefault();
+          commitBookmarkNameDialog();
+        } else if (ev.key === 'Escape') {
+          ev.preventDefault();
+          hideBookmarkNameDialog();
+        }
+      });
+    }
+
+    let logEntries = mount.querySelector('#__zt-log-entries');
+    if (logEntries) {
+      if (logEntries.dataset.ztBookmarkBound !== '2') {
+        logEntries.dataset.ztBookmarkBound = '2';
+        logEntries.addEventListener('click', handleLogBookmarksClick, true);
+      }
+    }
+  }
+
+  function resolveEntryFromRow(row) {
+    let entryKey = row.getAttribute('data-key');
+    if (!entryKey) return null;
+    let idx = parseInt(row.getAttribute('data-log-index'), 10);
+    let entry = (!isNaN(idx) && log[idx]) ? log[idx] : findLogEntry(entryKey);
+    if (!entry) {
+      let msgEl = row.querySelector('.__zt-entry-msg');
+      let timeEl = row.querySelector('.__zt-entry-time');
+      entry = {
+        key: entryKey,
+        time: timeEl ? String(timeEl.textContent).trim() : '',
+        name: row.getAttribute('data-name') || null,
+        msg: msgEl ? msgEl.textContent : ''
+      };
+    }
+    return { entryKey: entryKey, entry: entry };
+  }
+
+  function handleLogBookmarksClick(e) {
+    if (e.target.closest && e.target.closest('.__zt-entry-bookmark')) {
+      e.preventDefault();
+      e.stopPropagation();
+      let chip = e.target.closest('.__zt-entry-bookmark');
+      let entryKey = chip.getAttribute('data-entry-key');
+      if (!entryKey) return;
+      let row = chip.closest('.__zt-entry');
+      let resolved = row ? resolveEntryFromRow(row) : { entryKey: entryKey, entry: findLogEntry(entryKey) };
+      if (!resolved || !resolved.entry) return;
+      showBookmarkEditDialog(resolved.entryKey, resolved.entry);
+      return;
+    }
+    handleBookmarkPlacementClick(e);
+  }
+
+  function handleBookmarkPlacementClick(e) {
+    if (!bookmarkMode) return;
+    if (e.target.closest && e.target.closest('.__zt-entry-bookmark')) return;
+    let row = e.target.closest && e.target.closest('.__zt-entry');
+    if (!row || row.classList.contains('.__zt-entry--marker')) return;
+    if (!ui || !ui.settledEl || !ui.settledEl.contains(row)) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    let entryKey = row.getAttribute('data-key');
+    if (!entryKey) return;
+
+    let resolved = resolveEntryFromRow(row);
+    if (!resolved) return;
+    entryKey = resolved.entryKey;
+    let entry = resolved.entry;
+
+    if (bookmarkByKey.has(entryKey)) {
+      showBookmarkEditDialog(entryKey, entry);
+      return;
+    }
+
+    let defaultLabel = entry.name || (entry.msg ? entry.msg.slice(0, 40) : '');
+    showBookmarkNameDialog(defaultLabel, entryKey, entry, function (label) {
+      if (label === null) return;
+      if (addBookmark(entryKey, label, entry)) setBookmarkMode(false);
+    });
+  }
+
+  function syncBookmarkMarkers() {
+    if (!ui || !ui.settledEl) return;
+    let doc = ui.settledEl.ownerDocument;
+    let rows = ui.settledEl.querySelectorAll('.__zt-entry');
+    for (let i = 0; i < rows.length; i++) {
+      let row = rows[i];
+      let key = row.getAttribute('data-key');
+      let label = key ? bookmarkByKey.get(key) : null;
+      let bookmarked = !!label;
+      row.classList.toggle('__zt-entry--bookmarked', bookmarked);
+      if (bookmarked) {
+        ensureBookmarkChip(row, key, label, doc);
+      } else {
+        let chip = row.querySelector('.__zt-entry-bookmark');
+        if (chip) chip.remove();
+      }
+    }
+  }
+
+  loadBookmarks();
 
   function persistLog() {
     log = dedupLog(log);
@@ -481,6 +983,34 @@
     });
     if (added) startElapsed();
     return added;
+  }
+
+  function ingestChatLines(lines) {
+    if (paused) return 0;
+    let added = 0;
+    lines.forEach(function (line) {
+      let key = 'chat|' + line.chatId;
+      if (seen.has(key)) return;
+      seen.add(key);
+      added++;
+      log.push({
+        key: key,
+        time: line.time,
+        name: line.name,
+        msg: line.msg,
+        src: line.src,
+        chat: true
+      });
+    });
+    if (added) {
+      startElapsed();
+      persistLog();
+    }
+    return added;
+  }
+
+  function trackChatMessages(state) {
+    ingestChatLines(extractChatLines(state));
   }
 
   let prevSharers = null;
@@ -587,6 +1117,7 @@
     }
 
     trackShareEvents(state);
+    trackChatMessages(state);
 
     if (!paused) {
       let lines = extractLines(state);
@@ -1099,6 +1630,113 @@
         font-family: inherit;
       }
       .__zt-btn-icon:hover { background: var(--zt-btn-hover-bg); color: var(--zt-text-primary); }
+      .__zt-btn-icon--active {
+        background: var(--zt-icon-btn-active-bg);
+        border-color: var(--zt-icon-btn-active-border);
+        color: var(--zt-icon-btn-active-text);
+      }
+      .__zt-btn-icon .__zt-bookmark-icon {
+        display: block;
+      }
+      .__zt-bookmark-mode #__zt-settled .__zt-entry:not(.__zt-entry--marker) {
+        cursor: pointer;
+      }
+      .__zt-bookmark-mode #__zt-settled .__zt-entry:not(.__zt-entry--marker):hover {
+        background: var(--zt-btn-hover-bg);
+        border-radius: 4px;
+      }
+      .__zt-entry--bookmarked .__zt-entry-header {
+        border-left: 2px solid #f59e0b;
+        padding-left: 4px;
+        margin-left: -6px;
+      }
+      .__zt-entry-bookmark {
+        border: none;
+        background: rgba(245, 158, 11, 0.15);
+        color: #f59e0b;
+        font-size: 10px;
+        font-weight: 600;
+        padding: 1px 5px;
+        border-radius: 4px;
+        cursor: pointer;
+        margin-right: 4px;
+        flex-shrink: 0;
+        font-family: inherit;
+        max-width: 140px;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        line-height: 1.3;
+      }
+      .__zt-entry-bookmark-icon {
+        display: inline-flex;
+        flex-shrink: 0;
+        line-height: 0;
+      }
+      .__zt-entry-bookmark-label {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        min-width: 0;
+      }
+      .__zt-entry-bookmark:hover {
+        background: rgba(245, 158, 11, 0.28);
+      }
+      .__zt-entry--continued .__zt-entry-bookmark {
+        display: block;
+        margin-bottom: 2px;
+        margin-left: 56px;
+      }
+      .__zt-bookmark-dialog {
+        position: absolute;
+        inset: 0;
+        z-index: 20;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.35);
+        border-radius: 8px;
+        padding: 12px;
+        box-sizing: border-box;
+      }
+      .__zt-bookmark-dialog-card {
+        width: 100%;
+        max-width: 280px;
+        background: var(--zt-widget-bg);
+        border: 1px solid var(--zt-widget-border);
+        border-radius: 8px;
+        padding: 10px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+      }
+      .__zt-bookmark-dialog-title {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--zt-text-primary);
+        margin-bottom: 8px;
+      }
+      .__zt-bookmark-dialog-card input {
+        width: 100%;
+        box-sizing: border-box;
+        background: var(--zt-search-bg);
+        border: 1px solid var(--zt-search-border);
+        border-radius: 6px;
+        color: var(--zt-search-text);
+        font-size: 12px;
+        padding: 6px 8px;
+        margin-bottom: 8px;
+        font-family: inherit;
+      }
+      .__zt-bookmark-dialog-actions {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 6px;
+      }
+      .__zt-bookmark-dialog-actions-right {
+        display: flex;
+        gap: 6px;
+        margin-left: auto;
+      }
 
       /* ── Paused banner ── */
       .__zt-paused-banner {
@@ -1225,6 +1863,14 @@
         padding-left: 0;
         flex: 1;
         min-width: 0;
+      }
+      .__zt-entry--chat .__zt-entry-name::after {
+        content: ' · chat';
+        font-weight: 500;
+        color: var(--zt-text-dim);
+      }
+      .__zt-entry--chat .__zt-entry-msg {
+        font-style: italic;
       }
       .__zt-entry--run-head,
       .__zt-entry--marker {
@@ -1554,6 +2200,10 @@
     localStorage.removeItem(storageKey);
     localStorage.removeItem(meetingKey);
     localStorage.removeItem(autoDownloadKey);
+    localStorage.removeItem(bookmarksKey);
+    bookmarks = [];
+    bookmarkByKey = new Map();
+    bookmarkMode = false;
     window.__ztCaptionLoaded = false;
     delete window.__ztCaption;
     try {
@@ -1605,6 +2255,11 @@
     ui.dot = mount.querySelector('#__zt-dot');
     ui.timerEl = mount.querySelector('#__zt-timer');
     ui.modeBtn = mount.querySelector('#__zt-mode-btn');
+    ui.bookmarkBtn = mount.querySelector('#__zt-bookmark-btn');
+    ui.bookmarkDialog = mount.querySelector('#__zt-bookmark-dialog');
+    ui.bookmarkInput = mount.querySelector('#__zt-bookmark-input');
+    ui.bookmarkDialogTitle = mount.querySelector('#__zt-bookmark-dialog-title');
+    ui.bookmarkRemoveBtn = mount.querySelector('#__zt-bookmark-remove');
     ui.pausedBanner = mount.querySelector('#__zt-paused-banner');
     ui.logEntriesEl = mount.querySelector('#__zt-log-entries');
     ui.settledEl = mount.querySelector('#__zt-settled');
@@ -1622,6 +2277,7 @@
     ui.pillSpeaking = pill.querySelector('#__zt-pill-speaking');
     ui.pillMeta = pill.querySelector('#__zt-pill-meta');
     ui.usingBox = !!box;
+    ensureBookmarkWiring(mount, doc);
     return true;
   }
 
@@ -1728,12 +2384,14 @@
     });
 
     shieldInputEvents(mount.querySelector('#__zt-search-input'));
+    ensureBookmarkWiring(mount, doc);
   }
 
   function createMount(doc) {
     ensureStyles(doc);
     let mount = doc.getElementById('__zt-caption-mount');
     if (mount) {
+      ensureBookmarkWiring(mount, doc);
       if (!mount.dataset.ztBound) {
         mount.dataset.ztBound = '1';
         wireMountEvents(mount, doc);
@@ -1752,6 +2410,7 @@
         '<div class="__zt-meta">',
           '<span id="__zt-timer" class="__zt-timer">0:00</span>',
         '</div>',
+        '<button id="__zt-bookmark-btn" class="__zt-btn-icon" type="button" title="Add bookmark">' + bookmarkIconHtml(12) + '</button>',
         '<button id="__zt-mode-btn" class="__zt-btn-icon" type="button" title="Toggle light/dark">☀︎</button>',
         '<button id="__zt-collapse-btn" class="__zt-btn-icon" type="button" title="Collapse">–</button>',
       '</div>',
@@ -1794,6 +2453,19 @@
           '</div>',
         '</div>',
         '<button id="__zt-stop-btn" class="__zt-btn __zt-btn--stop" type="button">■ Stop</button>',
+      '</div>',
+      '<div id="__zt-bookmark-dialog" class="__zt-bookmark-dialog" style="display:none" role="dialog">',
+        '<div class="__zt-bookmark-dialog-card">',
+          '<div id="__zt-bookmark-dialog-title" class="__zt-bookmark-dialog-title">Name bookmark</div>',
+          '<input id="__zt-bookmark-input" type="text" spellcheck="false" placeholder="Bookmark label">',
+          '<div class="__zt-bookmark-dialog-actions">',
+            '<button id="__zt-bookmark-remove" type="button" class="__zt-btn __zt-btn--stop" style="display:none">Remove</button>',
+            '<div class="__zt-bookmark-dialog-actions-right">',
+              '<button id="__zt-bookmark-cancel" type="button" class="__zt-btn">Cancel</button>',
+              '<button id="__zt-bookmark-save" type="button" class="__zt-btn __zt-btn--primary">Save</button>',
+            '</div>',
+          '</div>',
+        '</div>',
       '</div>'
     ].join('');
 
@@ -1978,6 +2650,7 @@
     let item = doc.createElement('div');
     let cls = '__zt-entry';
     if (e.marker) cls += ' __zt-entry--marker';
+    if (e.chat) cls += ' __zt-entry--chat';
     if (pending) cls += ' __zt-entry--pending';
     if (continued) cls += ' __zt-entry--continued';
     else if (!e.marker) cls += ' __zt-entry--run-head';
@@ -2038,8 +2711,9 @@
       // share the same caption mount (e.g. parent shell + iframe inject).
       let existing = ui.settledEl.querySelector('[data-key="' + e.key.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"]');
       if (existing) continue;
-      let continued = !e.marker && !!e.name && e.name === lastRenderedSpeaker;
+      let continued = !e.marker && !e.chat && !!e.name && e.name === lastRenderedSpeaker;
       let node = buildEntryNode(doc, e, continued, false);
+      node.setAttribute('data-log-index', String(i));
       if (animateNew && !e.marker) {
         node.classList.add('__zt-entry--just-logged');
         node.addEventListener('animationend', function () {
@@ -2047,9 +2721,10 @@
         }, { once: true });
       }
       ui.settledEl.appendChild(node);
-      lastRenderedSpeaker = e.marker ? null : (e.name || null);
+      lastRenderedSpeaker = (e.marker || e.chat) ? null : (e.name || null);
     }
     renderedLogCount = log.length;
+    syncBookmarkMarkers();
     if (searchQuery.trim()) applyLogFilter();
     if (nearBottom) scrollLogToBottom();
   }
@@ -2199,8 +2874,14 @@
       lastSnapshot = '';
       if (store) {
         try {
-          extractLines(store.getState()).forEach(function (line) {
+          let pauseState = store.getState();
+          extractLines(pauseState).forEach(function (line) {
             let key = makeKey(line.time, line.name, line.msg);
+            pauseSkipped.add(key);
+            seen.add(key);
+          });
+          extractChatLines(pauseState).forEach(function (line) {
+            let key = 'chat|' + line.chatId;
             pauseSkipped.add(key);
             seen.add(key);
           });
@@ -2339,7 +3020,9 @@
     pollStore();
     if (store) {
       try {
-        ingestLines(extractLines(store.getState()));
+        let state = store.getState();
+        ingestLines(extractLines(state));
+        ingestChatLines(extractChatLines(state));
       } catch (e) { /* ignore */ }
     }
     persistLog();
@@ -2365,18 +3048,32 @@
   function formatOutput() {
     let lastSpeaker = null;
     let body = log.map(function (e) {
+      let bookmarkLabel = bookmarkByKey.get(e.key);
+      let parts = [];
+      if (bookmarkLabel) parts.push('', '★ BOOKMARK: ' + bookmarkLabel);
+
       if (e.marker) {
         lastSpeaker = null;
-        return (e.time || '—') + '  ' + e.msg;
+        parts.push((e.time || '—') + '  ' + e.msg);
+        return parts.join('\n');
       }
       let line = '';
-      if (e.name && e.name !== lastSpeaker) {
-        line += '\n[' + e.name + ']\n';
-        lastSpeaker = e.name;
+      let label = e.name ? (e.chat ? e.name + ' · chat' : e.name) : null;
+      if (label && label !== lastSpeaker) {
+        line += '\n[' + label + ']\n';
+        lastSpeaker = label;
       }
-      line += (e.time || '—') + '  ' + e.msg;
-      return line;
+      line += (e.time || '—') + '  ' + (e.chat ? '[chat] ' : '') + e.msg;
+      parts.push(line);
+      return parts.join('\n');
     }).join('\n').trim();
+
+    if (bookmarks.length) {
+      body += '\n\n— Bookmarks —\n' + bookmarks.map(function (b) {
+        return '★ ' + b.label + ' — ' + (b.time || '—') + ' · ' +
+          (b.speaker || '—') + ' · ' + (b.preview || '');
+      }).join('\n');
+    }
 
     let stats = talkTimeSummary();
     if (stats.length) {
@@ -2429,12 +3126,24 @@
       session: currentSessionName() || null,
       exportedAt: new Date().toISOString(),
       talkTime: talkTimeSummary(),
+      bookmarks: bookmarks.map(function (b) {
+        return {
+          id: b.id,
+          label: b.label,
+          entryKey: b.entryKey,
+          time: b.time || null,
+          speaker: b.speaker || null,
+          preview: b.preview || null
+        };
+      }),
       entries: log.map(function (e) {
         return {
           time: e.time || null,
           speaker: e.name || null,
           text: e.msg,
-          marker: !!e.marker
+          marker: !!e.marker,
+          chat: !!e.chat,
+          bookmark: bookmarkByKey.get(e.key) || null
         };
       })
     };
@@ -2601,6 +3310,10 @@
       elapsedTimer = null;
     }
     localStorage.removeItem(storageKey);
+    localStorage.removeItem(bookmarksKey);
+    bookmarks = [];
+    bookmarkByKey = new Map();
+    bookmarkMode = false;
     if (ui && ui.settledEl) ui.settledEl.innerHTML = '';
     if (ui && ui.pendingEl) ui.pendingEl.innerHTML = '';
     updateUI();
