@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>ZT Captions — Test Harness</title>
+<style>
+  body { margin: 0; min-height: 100vh; background: #1a1a1a; font-family: system-ui, sans-serif; }
+  .note { color: #555; font-size: 12px; padding: 12px; }
+</style>
+</head>
+<body>
+<div id="root"><div class="note">Fake Zoom meeting — harness feeds captions through a fake Redux store.</div></div>
+
+<script>
+  // ── Fake Redux store the recorder will discover via the fake fiber ──
+  var state = {
+    attendeesList: {
+      attendeesList: [
+        { userId: 1, displayName: 'Patrick' },
+        { userId: 2, displayName: 'Seth' },
+        { userId: 3, displayName: 'Chris J' },
+        { userId: 4, displayName: 'Dave' },
+        { userId: 5, displayName: 'Mindy' }
+      ]
+    },
+    liveTranscription: { allMessages: {}, messagesOrder: [] },
+    newChat: { meetingChat: [] },
+    meeting: {}
+  };
+
+  var fakeStore = {
+    getState: function () { return state; },
+    subscribe: function () { return function () {}; },
+    dispatch: function () {}
+  };
+
+  document.getElementById('root')['__reactContainer$harness'] = {
+    memoizedProps: { store: fakeStore },
+    child: null,
+    sibling: null
+  };
+
+  // ── Scripted caption feed ──
+  var msgIdx = 0;
+  function addMessage(userId, text) {
+    msgIdx++;
+    var id = 'm' + msgIdx;
+    state.liveTranscription.allMessages[id] = {
+      messageTime: Date.now(),
+      userId: userId,
+      message: text,
+      isFinished: true
+    };
+    state.liveTranscription.messagesOrder.push(id);
+    return id;
+  }
+  function growMessage(id, text) {
+    state.liveTranscription.allMessages[id].message = text;
+  }
+
+  function addChatMessage(senderId, text, audience) {
+    state.newChat.meetingChat.push({
+      senderId: senderId,
+      senderName: state.attendeesList.attendeesList.find(function (a) { return a.userId === senderId; }).displayName,
+      timeStamp: Date.now(),
+      meetingChatExt: audience ? { receiverName: audience, isPrivately: true } : null,
+      chatMsgs: [{
+        msgId: 'chat-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+        text: text,
+        time: Date.now()
+      }]
+    });
+  }
+
+  var script = [
+    function () { addMessage(4, 'alright let me pull up the repo settings, give me one sec'); },
+    function () { addMessage(4, 'ok I am in the settings now, I can see the transfer option'); },
+    function () { addMessage(1, 'sure, and while you are doing that, Seth did you want to talk through the access model'); },
+    function () { window.__m = addMessage(2, 'yeah so the way we have it'); },
+    function () { growMessage(window.__m, 'yeah so the way we have it set up now, there are three org-level members who need write access'); },
+    function () { addMessage(2, 'myself, Francis, and then the deploy bot'); },
+    function () { addMessage(3, 'got it, so we add all three to the Carnegie org before we trigger the transfer'); },
+    function () { addChatMessage(2, 'dropping the repo link in chat for Dave', null); },
+    function () { addMessage(5, 'before we do this, are we all agreed that today is the right time'); }
+  ];
+
+  var step = 0;
+  var feed = setInterval(function () {
+    if (step >= script.length) { clearInterval(feed); return; }
+    script[step++]();
+  }, 1600);
+</script>
+<script src="zoom-transcript.js"></script>
+</body>
+</html>

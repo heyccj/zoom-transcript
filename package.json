@@ -1,0 +1,11 @@
+{
+  "name": "zoom-transcript",
+  "private": true,
+  "scripts": {
+    "build": "esbuild src/index.js --bundle --format=iife --outfile=zoom-transcript.js",
+    "watch": "esbuild src/index.js --bundle --format=iife --outfile=zoom-transcript.js --watch"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}

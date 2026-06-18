@@ -1,0 +1,1172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ZT Captions — Widget Mock</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  /* ── Theme tokens — light default ── */
+  :root {
+    --page-bg:          #eef0f4;
+    --scene-label:      #9ca3af;
+
+    --zoom-bg:          #2a2a2a;
+    --zoom-video-bg:    #1a1a1a;
+
+    --widget-bg:        rgba(255,255,255,0.97);
+    --widget-border:    rgba(0,0,0,0.09);
+
+    --text-primary:     #111827;
+    --text-secondary:   #6b7280;
+    --text-dim:         #9ca3af;
+    --text-msg:         #374151;
+    --text-pending-msg: #c9cdd6;
+    --text-marker:      #9ca3af;
+    --text-idle:        rgba(0,0,0,0.3);
+    --text-idle-strong: #2563eb;
+
+    --session-color:    #111827;
+    --session-placeholder: #9ca3af;
+
+    --tab-inactive:     #9ca3af;
+    --tab-active-text:  #111827;
+    --tab-active-line:  #2563eb;
+    --tab-border:       rgba(0,0,0,0.08);
+
+    --search-bg:        rgba(0,0,0,0.04);
+    --search-border:    rgba(0,0,0,0.1);
+    --search-text:      #111827;
+    --search-placeholder: #9ca3af;
+
+    --entry-border:     rgba(0,0,0,0.05);
+
+    --btn-bg:           rgba(0,0,0,0.05);
+    --btn-border:       rgba(0,0,0,0.1);
+    --btn-text:         #374151;
+    --btn-hover-bg:     rgba(0,0,0,0.09);
+
+    --btn-pause-text:   #92400e;
+    --btn-pause-border: rgba(146,64,14,0.2);
+    --btn-pause-bg:     rgba(146,64,14,0.06);
+    --btn-pause-hover:  rgba(146,64,14,0.1);
+
+    --btn-stop-text:    #b91c1c;
+    --btn-stop-border:  rgba(185,28,28,0.2);
+    --btn-stop-bg:      rgba(185,28,28,0.06);
+    --btn-stop-hover:   rgba(185,28,28,0.1);
+
+    --btn-primary-text:   #1d4ed8;
+    --btn-primary-border: rgba(29,78,216,0.2);
+    --btn-primary-bg:     rgba(29,78,216,0.06);
+    --btn-primary-hover:  rgba(29,78,216,0.1);
+
+    --btn-resume-text:    #15803d;
+    --btn-resume-border:  rgba(21,128,61,0.2);
+    --btn-resume-bg:      rgba(21,128,61,0.06);
+
+    --icon-btn-bg:        rgba(0,0,0,0.05);
+    --icon-btn-border:    rgba(0,0,0,0.1);
+    --icon-btn-text:      #6b7280;
+    --icon-btn-active-bg: rgba(37,99,235,0.08);
+    --icon-btn-active-border: rgba(37,99,235,0.25);
+    --icon-btn-active-text: #1d4ed8;
+
+    --footer-border:    rgba(0,0,0,0.07);
+    --scrollbar:        rgba(0,0,0,0.14);
+
+    --dropdown-bg:      #ffffff;
+    --dropdown-border:  rgba(0,0,0,0.1);
+    --dropdown-item-hover: rgba(0,0,0,0.04);
+    --dropdown-label:   #9ca3af;
+    --dropdown-ext:     #9ca3af;
+
+    --paused-bg:        rgba(161,98,7,0.06);
+    --paused-border:    rgba(161,98,7,0.18);
+    --paused-text:      #92400e;
+
+    --collapsed-bg:     rgba(255,255,255,0.97);
+    --collapsed-hover:  rgba(248,249,250,0.99);
+    --chip-bg:          rgba(0,0,0,0.06);
+
+    --stats-label:      #9ca3af;
+    --stats-bar-bg:     rgba(0,0,0,0.07);
+    --stat-lines-text:  #9ca3af;
+    --stat-name-text:   #374151;
+
+    /* Speaker colors — darker for legibility on white */
+    --c0: #0284c7;
+    --c1: #be185d;
+    --c2: #b45309;
+    --c3: #15803d;
+    --c4: #7c3aed;
+    --c5: #c2410c;
+  }
+
+  body.dark {
+    --page-bg:          #1a1f2e;
+    --scene-label:      #4b5563;
+
+    --widget-bg:        rgba(0,0,0,0.78);
+    --widget-border:    rgba(255,255,255,0.08);
+
+    --text-primary:     #e8e8e8;
+    --text-secondary:   #9aa3af;
+    --text-dim:         #4b5563;
+    --text-msg:         #d1d5db;
+    --text-pending-msg: #4b5563;
+    --text-marker:      #6b7280;
+    --text-idle:        rgba(255,255,255,0.35);
+    --text-idle-strong: #7dd3fc;
+
+    --session-color:    #e8e8e8;
+    --session-placeholder: #4b5563;
+
+    --tab-inactive:     #6b7280;
+    --tab-active-text:  #e8e8e8;
+    --tab-active-line:  #7dd3fc;
+    --tab-border:       rgba(255,255,255,0.08);
+
+    --search-bg:        rgba(255,255,255,0.06);
+    --search-border:    rgba(255,255,255,0.1);
+    --search-text:      #e8e8e8;
+    --search-placeholder: #4b5563;
+
+    --entry-border:     rgba(255,255,255,0.04);
+
+    --btn-bg:           rgba(255,255,255,0.08);
+    --btn-border:       rgba(255,255,255,0.1);
+    --btn-text:         #d1d5db;
+    --btn-hover-bg:     rgba(255,255,255,0.14);
+
+    --btn-pause-text:   #fcd34d;
+    --btn-pause-border: rgba(252,211,77,0.2);
+    --btn-pause-bg:     rgba(252,211,77,0.07);
+    --btn-pause-hover:  rgba(252,211,77,0.14);
+
+    --btn-stop-text:    #f87171;
+    --btn-stop-border:  rgba(248,113,113,0.2);
+    --btn-stop-bg:      rgba(248,113,113,0.07);
+    --btn-stop-hover:   rgba(248,113,113,0.14);
+
+    --btn-primary-text:   #7dd3fc;
+    --btn-primary-border: rgba(125,211,252,0.2);
+    --btn-primary-bg:     rgba(125,211,252,0.07);
+    --btn-primary-hover:  rgba(125,211,252,0.14);
+
+    --btn-resume-text:    #4ade80;
+    --btn-resume-border:  rgba(74,222,128,0.2);
+    --btn-resume-bg:      rgba(74,222,128,0.07);
+
+    --icon-btn-bg:        rgba(255,255,255,0.08);
+    --icon-btn-border:    rgba(255,255,255,0.1);
+    --icon-btn-text:      #aaa;
+    --icon-btn-active-bg: rgba(99,102,241,0.25);
+    --icon-btn-active-border: rgba(99,102,241,0.4);
+    --icon-btn-active-text: #a5b4fc;
+
+    --footer-border:    rgba(255,255,255,0.07);
+    --scrollbar:        rgba(255,255,255,0.15);
+
+    --dropdown-bg:      #1f2937;
+    --dropdown-border:  rgba(255,255,255,0.12);
+    --dropdown-item-hover: rgba(255,255,255,0.07);
+    --dropdown-label:   #6b7280;
+    --dropdown-ext:     #6b7280;
+
+    --paused-bg:        rgba(252,211,77,0.08);
+    --paused-border:    rgba(252,211,77,0.18);
+    --paused-text:      #fcd34d;
+
+    --collapsed-bg:     rgba(0,0,0,0.78);
+    --collapsed-hover:  rgba(0,0,0,0.85);
+    --chip-bg:          rgba(255,255,255,0.06);
+
+    --stats-label:      #6b7280;
+    --stats-bar-bg:     rgba(255,255,255,0.08);
+    --stat-lines-text:  #4b5563;
+    --stat-name-text:   #e8e8e8;
+
+    --c0: #7dd3fc;
+    --c1: #f9a8d4;
+    --c2: #fcd34d;
+    --c3: #86efac;
+    --c4: #c4b5fd;
+    --c5: #fb923c;
+  }
+
+  body {
+    background: var(--page-bg);
+    font-family: system-ui, -apple-system, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 48px;
+    padding: 24px 24px 96px;
+    min-height: 100vh;
+    transition: background 0.2s;
+  }
+
+  /* ── Scene labels ── */
+  .scene-label {
+    color: var(--scene-label);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    align-self: flex-start;
+    width: 500px;
+  }
+
+  /* ── Zoom chrome ── */
+  .zoom-bg {
+    width: 500px;
+    background: var(--zoom-bg);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+
+  .zoom-video-row {
+    height: 80px;
+    background: var(--zoom-video-bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+
+  .zoom-avatar {
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    background: #2d2d2d;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    color: #666;
+    border: 2px solid #333;
+  }
+
+  /* ── Widget wrapper ── */
+  .widget-wrap {
+    padding: 8px 10px 10px;
+    background: var(--widget-bg);
+    border-top: 1px solid var(--widget-border);
+    transition: background 0.2s, border-color 0.2s;
+  }
+
+  /* ── Header ── */
+  .zt-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 32px;
+    margin-bottom: 6px;
+  }
+
+  .zt-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background: #ef4444;
+    box-shadow: 0 0 8px rgba(239,68,68,0.7);
+    animation: blink 1s ease-in-out infinite;
+  }
+
+  .zt-dot--idle    { background: #22c55e; box-shadow: none; animation: none; }
+  .zt-dot--waiting { background: #f59e0b; box-shadow: none; animation: none; }
+
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+
+  .zt-session-name {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--session-color);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: text;
+    min-width: 0;
+    caret-color: var(--tab-active-line);
+    transition: color 0.2s;
+  }
+
+  .zt-session-name::placeholder { color: var(--session-placeholder); font-weight: 400; }
+
+  .zt-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+
+  .zt-count {
+    color: var(--text-secondary);
+    font-size: 11px;
+    white-space: nowrap;
+  }
+
+  .zt-count strong { color: var(--text-primary); font-weight: 700; }
+
+  .zt-timer {
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .zt-btn-icon {
+    background: var(--icon-btn-bg);
+    border: 1px solid var(--icon-btn-border);
+    color: var(--icon-btn-text);
+    width: 24px;
+    height: 24px;
+    border-radius: 5px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    transition: background 0.15s, color 0.15s;
+    flex-shrink: 0;
+  }
+
+  .zt-btn-icon:hover { background: var(--btn-hover-bg); color: var(--text-primary); }
+  .zt-btn-icon.active {
+    background: var(--icon-btn-active-bg);
+    border-color: var(--icon-btn-active-border);
+    color: var(--icon-btn-active-text);
+  }
+
+  /* ── Tabs ── */
+  .zt-tabs {
+    display: flex;
+    gap: 2px;
+    margin-bottom: 8px;
+    border-bottom: 1px solid var(--tab-border);
+  }
+
+  .zt-tab {
+    padding: 5px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--tab-inactive);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: color 0.15s, border-color 0.15s;
+    white-space: nowrap;
+  }
+
+  .zt-tab:hover { color: var(--text-secondary); }
+  .zt-tab.active { color: var(--tab-active-text); border-bottom-color: var(--tab-active-line); }
+
+  /* ── Log panel ── */
+  .zt-log-panel {}
+
+  .zt-search {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--search-bg);
+    border: 1px solid var(--search-border);
+    border-radius: 6px;
+    padding: 5px 9px;
+    margin-bottom: 6px;
+    transition: background 0.2s;
+  }
+
+  .zt-search svg { opacity: 0.35; flex-shrink: 0; }
+
+  .zt-search input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--search-text);
+    font-size: 12px;
+    caret-color: var(--tab-active-line);
+  }
+
+  .zt-search input::placeholder { color: var(--search-placeholder); }
+
+  .zt-log-entries {
+    max-height: 160px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 2px;
+  }
+
+  .zt-log-entries::-webkit-scrollbar { width: 3px; }
+  .zt-log-entries::-webkit-scrollbar-track { background: transparent; }
+  .zt-log-entries::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 2px; }
+
+  .zt-entry {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--entry-border);
+    font-size: 12px;
+    line-height: 1.45;
+  }
+
+  .zt-entry:last-child { border-bottom: none; }
+
+  .zt-entry-time {
+    color: var(--text-dim);
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .zt-entry-name {
+    font-size: 10px;
+    font-weight: 700;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .zt-entry-msg {
+    color: var(--text-msg);
+    flex: 1;
+    min-width: 0;
+    word-wrap: break-word;
+  }
+
+  .zt-entry--marker .zt-entry-msg {
+    color: var(--text-marker);
+    font-style: italic;
+    font-size: 11px;
+  }
+
+  .zt-entry--pending .zt-entry-time { opacity: 0.4; }
+  .zt-entry--pending .zt-entry-name { opacity: 0.4; }
+  .zt-entry--pending .zt-entry-msg  { color: var(--text-pending-msg); }
+
+  .zt-entry--highlight .zt-entry-msg mark {
+    background: rgba(250,204,21,0.25);
+    color: #92400e;
+    border-radius: 2px;
+    padding: 0 1px;
+  }
+
+  body.dark .zt-entry--highlight .zt-entry-msg mark { color: #fde68a; }
+
+  .zt-idle {
+    color: var(--text-idle);
+    font-style: italic;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 36px;
+    padding: 8px 0;
+  }
+
+  /* ── Stats panel ── */
+  .zt-stats-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+
+  .zt-stats-label {
+    color: var(--stats-label);
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .zt-stat-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 0;
+    border-bottom: 1px solid var(--entry-border);
+  }
+
+  .zt-stat-row:last-child { border-bottom: none; }
+
+  .zt-stat-swatch {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .zt-stat-name {
+    font-size: 12px;
+    color: var(--stat-name-text);
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .zt-stat-bar-wrap {
+    width: 80px;
+    height: 4px;
+    background: var(--stats-bar-bg);
+    border-radius: 2px;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+
+  .zt-stat-bar {
+    height: 100%;
+    border-radius: 2px;
+  }
+
+  .zt-stat-pct {
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    width: 28px;
+    text-align: right;
+    flex-shrink: 0;
+  }
+
+  .zt-stat-lines {
+    color: var(--stat-lines-text);
+    font-size: 10px;
+    width: 40px;
+    text-align: right;
+    flex-shrink: 0;
+  }
+
+  /* ── Footer ── */
+  .zt-footer {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--footer-border);
+  }
+
+  .zt-btn {
+    background: var(--btn-bg);
+    border: 1px solid var(--btn-border);
+    color: var(--btn-text);
+    border-radius: 5px;
+    padding: 5px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+    transition: background 0.15s, color 0.15s;
+  }
+
+  .zt-btn:hover { background: var(--btn-hover-bg); }
+
+  .zt-btn--pause  { color: var(--btn-pause-text);   border-color: var(--btn-pause-border);   background: var(--btn-pause-bg); }
+  .zt-btn--pause:hover  { background: var(--btn-pause-hover); }
+
+  .zt-btn--stop   { color: var(--btn-stop-text);    border-color: var(--btn-stop-border);    background: var(--btn-stop-bg); }
+  .zt-btn--stop:hover   { background: var(--btn-stop-hover); }
+
+  .zt-btn--primary { color: var(--btn-primary-text); border-color: var(--btn-primary-border); background: var(--btn-primary-bg); }
+  .zt-btn--primary:hover { background: var(--btn-primary-hover); }
+
+  .zt-btn--resume { color: var(--btn-resume-text);  border-color: var(--btn-resume-border);  background: var(--btn-resume-bg); }
+
+  .zt-spacer { flex: 1; }
+
+  /* ── Download dropdown ── */
+  .zt-download-wrap { position: relative; }
+
+  .zt-dropdown {
+    position: absolute;
+    bottom: calc(100% + 5px);
+    right: 0;
+    background: var(--dropdown-bg);
+    border: 1px solid var(--dropdown-border);
+    border-radius: 7px;
+    overflow: hidden;
+    min-width: 130px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.14);
+    display: none;
+  }
+
+  body.dark .zt-dropdown { box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+  .zt-dropdown.open { display: block; }
+
+  .zt-dropdown-label {
+    padding: 7px 12px 4px;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--dropdown-label);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .zt-dropdown-item {
+    padding: 7px 12px;
+    font-size: 12px;
+    color: var(--btn-text);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: background 0.12s;
+  }
+
+  .zt-dropdown-item:hover { background: var(--dropdown-item-hover); }
+  .zt-dropdown-item span  { color: var(--dropdown-ext); font-size: 10px; flex: 1; text-align: right; }
+
+  /* ── Paused banner ── */
+  .zt-paused-banner {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 8px;
+    background: var(--paused-bg);
+    border: 1px solid var(--paused-border);
+    border-radius: 6px;
+    margin-bottom: 6px;
+    font-size: 12px;
+    color: var(--paused-text);
+  }
+
+  /* ── Collapsed pill ── */
+  .widget-collapsed {
+    padding: 8px 10px;
+    background: var(--collapsed-bg);
+    border-top: 1px solid var(--widget-border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+
+  .widget-collapsed:hover { background: var(--collapsed-hover); }
+
+  .zt-collapsed-speakers {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .zt-collapsed-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    animation: blink 1s ease-in-out infinite;
+    flex-shrink: 0;
+  }
+
+  .zt-collapsed-text {
+    font-size: 11px;
+    color: var(--text-secondary);
+  }
+
+  .zt-collapsed-text strong { color: var(--text-primary); }
+
+  .zt-speaker-chip {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--chip-bg);
+    border-radius: 20px;
+    padding: 2px 7px 2px 3px;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .zt-chip-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  /* ── Tab content ── */
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════════
+     SCENE 1 — EXPANDED / ACTIVE (Log tab)
+═══════════════════════════════════════════════════ -->
+<div class="scene-label">State: Expanded — Log tab</div>
+
+<div class="zoom-bg">
+  <div class="zoom-video-row">
+    <div class="zoom-avatar">👤</div>
+    <div class="zoom-avatar">👤</div>
+    <div class="zoom-avatar">👤</div>
+    <div class="zoom-avatar">👤</div>
+  </div>
+
+  <div class="widget-wrap" id="widget-main">
+    <div class="zt-header">
+      <div class="zt-dot" id="dot-main"></div>
+      <input class="zt-session-name" value="Rowan Dev Sync" placeholder="Name this meeting…">
+      <div class="zt-meta">
+        <span class="zt-timer" id="timer-main">23:47</span>
+        <span class="zt-count"><strong>84</strong> lines</span>
+      </div>
+      <button class="zt-btn-icon mode-btn" title="Toggle light/dark" onclick="toggleMode()">☀︎</button>
+      <button class="zt-btn-icon active" title="Collapse" onclick="toggleCollapse()">–</button>
+    </div>
+
+    <div class="zt-tabs">
+      <div class="zt-tab active" onclick="switchTab('log', this)">Log</div>
+      <div class="zt-tab" onclick="switchTab('stats', this)">Stats</div>
+    </div>
+
+    <div class="tab-content active" id="tab-log">
+      <div class="zt-log-panel">
+        <div class="zt-search">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><circle cx="6.5" cy="6.5" r="5" stroke="currentColor" stroke-width="1.5"/><path d="M10.5 10.5L14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          <input id="log-search" placeholder="Search transcript…" oninput="filterLog(this.value)">
+        </div>
+        <div class="zt-log-entries" id="log-entries">
+          <div class="zt-entry zt-entry--marker">
+            <span class="zt-entry-time">9:58:44</span>
+            <span class="zt-entry-msg">— Dave started sharing their screen —</span>
+          </div>
+          <div class="zt-entry">
+            <span class="zt-entry-time">10:01:02</span>
+            <span class="zt-entry-name" style="color:var(--c3)">Dave</span>
+            <span class="zt-entry-msg">alright let me pull up the repo settings, give me one sec</span>
+          </div>
+          <div class="zt-entry">
+            <span class="zt-entry-time">10:01:19</span>
+            <span class="zt-entry-name" style="color:var(--c0)">Patrick</span>
+            <span class="zt-entry-msg">sure, and while you're doing that — Seth did you want to talk through the access model real quick</span>
+          </div>
+          <div class="zt-entry">
+            <span class="zt-entry-time">10:01:38</span>
+            <span class="zt-entry-name" style="color:var(--c1)">Seth</span>
+            <span class="zt-entry-msg">yeah so the way we have it set up now, there are three org-level members who need write access — myself, Francis, and then the deploy bot</span>
+          </div>
+          <div class="zt-entry">
+            <span class="zt-entry-time">10:02:05</span>
+            <span class="zt-entry-name" style="color:var(--c2)">Chris J</span>
+            <span class="zt-entry-msg">got it, so we'd need to add all three to the Carnegie org before we trigger the transfer</span>
+          </div>
+          <div class="zt-entry">
+            <span class="zt-entry-time">10:02:21</span>
+            <span class="zt-entry-name" style="color:var(--c1)">Seth</span>
+            <span class="zt-entry-msg">exactly, and the deploy bot is a GitHub app not a user so the flow is a little different</span>
+          </div>
+          <div class="zt-entry">
+            <span class="zt-entry-time">10:04:08</span>
+            <span class="zt-entry-name" style="color:var(--c3)">Dave</span>
+            <span class="zt-entry-msg">ok I'm in the settings now, I can see the transfer option, it says the repo will keep all its history and open PRs</span>
+          </div>
+          <div class="zt-entry">
+            <span class="zt-entry-time">10:05:33</span>
+            <span class="zt-entry-name" style="color:var(--c4)">Mindy</span>
+            <span class="zt-entry-msg">before we do this — are we all agreed that today is the right time? I want to flag that I'm out starting Friday and Tyler is the one holding design system work</span>
+          </div>
+          <div class="zt-entry">
+            <span class="zt-entry-time">10:06:01</span>
+            <span class="zt-entry-name" style="color:var(--c2)">Chris J</span>
+            <span class="zt-entry-msg">I think we're good, this is independent of the design system work, the repo is just getting a new home</span>
+          </div>
+          <div class="zt-entry">
+            <span class="zt-entry-time">10:06:47</span>
+            <span class="zt-entry-name" style="color:var(--c5)">Francis</span>
+            <span class="zt-entry-msg">agreed, and we've been sitting on this since March, let's just do it</span>
+          </div>
+          <div class="zt-entry zt-entry--pending">
+            <span class="zt-entry-time">10:07:12</span>
+            <span class="zt-entry-name" style="color:var(--c2)">Chris J</span>
+            <span class="zt-entry-msg">ok so Dave if you want to kick off the transfer I can stay on the settings page with you</span>
+          </div>
+          <div class="zt-entry zt-entry--pending">
+            <span class="zt-entry-time">10:07:18</span>
+            <span class="zt-entry-name" style="color:var(--c0)">Patrick</span>
+            <span class="zt-entry-msg">yeah go ahead</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tab-content" id="tab-stats">
+      <div>
+        <div class="zt-stats-header">
+          <span class="zt-stats-label">Talk time</span>
+          <span class="zt-stats-label" style="opacity:0.6">84 lines · 23:47</span>
+        </div>
+        <div class="zt-stat-row">
+          <div class="zt-stat-swatch" style="background:var(--c1)"></div>
+          <div class="zt-stat-name">Seth</div>
+          <div class="zt-stat-bar-wrap"><div class="zt-stat-bar" style="width:31%;background:var(--c1)"></div></div>
+          <div class="zt-stat-pct">31%</div>
+          <div class="zt-stat-lines">26 lines</div>
+        </div>
+        <div class="zt-stat-row">
+          <div class="zt-stat-swatch" style="background:var(--c2)"></div>
+          <div class="zt-stat-name">Chris J</div>
+          <div class="zt-stat-bar-wrap"><div class="zt-stat-bar" style="width:25%;background:var(--c2)"></div></div>
+          <div class="zt-stat-pct">25%</div>
+          <div class="zt-stat-lines">21 lines</div>
+        </div>
+        <div class="zt-stat-row">
+          <div class="zt-stat-swatch" style="background:var(--c0)"></div>
+          <div class="zt-stat-name">Patrick</div>
+          <div class="zt-stat-bar-wrap"><div class="zt-stat-bar" style="width:18%;background:var(--c0)"></div></div>
+          <div class="zt-stat-pct">18%</div>
+          <div class="zt-stat-lines">15 lines</div>
+        </div>
+        <div class="zt-stat-row">
+          <div class="zt-stat-swatch" style="background:var(--c3)"></div>
+          <div class="zt-stat-name">Dave</div>
+          <div class="zt-stat-bar-wrap"><div class="zt-stat-bar" style="width:14%;background:var(--c3)"></div></div>
+          <div class="zt-stat-pct">14%</div>
+          <div class="zt-stat-lines">12 lines</div>
+        </div>
+        <div class="zt-stat-row">
+          <div class="zt-stat-swatch" style="background:var(--c4)"></div>
+          <div class="zt-stat-name">Mindy</div>
+          <div class="zt-stat-bar-wrap"><div class="zt-stat-bar" style="width:8%;background:var(--c4)"></div></div>
+          <div class="zt-stat-pct">8%</div>
+          <div class="zt-stat-lines">7 lines</div>
+        </div>
+        <div class="zt-stat-row">
+          <div class="zt-stat-swatch" style="background:var(--c5)"></div>
+          <div class="zt-stat-name">Francis</div>
+          <div class="zt-stat-bar-wrap"><div class="zt-stat-bar" style="width:4%;background:var(--c5)"></div></div>
+          <div class="zt-stat-pct">4%</div>
+          <div class="zt-stat-lines">3 lines</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="zt-footer">
+      <button class="zt-btn zt-btn--pause" onclick="togglePause()" id="footer-pause-btn">⏸ Pause</button>
+      <button class="zt-btn zt-btn--primary" onclick="onCopyClick(this)">⎘ Copy</button>
+      <div class="zt-spacer"></div>
+      <div class="zt-download-wrap">
+        <button class="zt-btn" onclick="toggleDropdown('dl-dropdown')">↓ Download ▾</button>
+        <div class="zt-dropdown" id="dl-dropdown">
+          <div class="zt-dropdown-label">Export as</div>
+          <div class="zt-dropdown-item">📄 Plain text <span>.txt</span></div>
+          <div class="zt-dropdown-item">📊 Structured <span>.json</span></div>
+        </div>
+      </div>
+      <button class="zt-btn zt-btn--stop">■ Stop</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════════
+     SCENE 2 — PAUSED
+═══════════════════════════════════════════════════ -->
+<div class="scene-label">State: Paused</div>
+
+<div class="zoom-bg">
+  <div class="zoom-video-row">
+    <div class="zoom-avatar">👤</div>
+    <div class="zoom-avatar">👤</div>
+    <div class="zoom-avatar">👤</div>
+    <div class="zoom-avatar">👤</div>
+  </div>
+  <div class="widget-wrap">
+    <div class="zt-header">
+      <div class="zt-dot zt-dot--idle"></div>
+      <input class="zt-session-name" value="Rowan Dev Sync" placeholder="Name this meeting…">
+      <div class="zt-meta">
+        <span class="zt-timer">23:51</span>
+        <span class="zt-count"><strong>84</strong> lines</span>
+      </div>
+      <button class="zt-btn-icon mode-btn" title="Toggle light/dark" onclick="toggleMode()">☀︎</button>
+      <button class="zt-btn-icon active">–</button>
+    </div>
+    <div class="zt-paused-banner">
+      ⏸ Recording paused — captions are not being saved
+      <button class="zt-btn" style="padding:3px 8px;font-size:10px;margin-left:4px">Resume</button>
+    </div>
+    <div class="zt-tabs">
+      <div class="zt-tab active">Log</div>
+      <div class="zt-tab">Stats</div>
+    </div>
+    <div class="zt-log-panel">
+      <div class="zt-search">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><circle cx="6.5" cy="6.5" r="5" stroke="currentColor" stroke-width="1.5"/><path d="M10.5 10.5L14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        <input placeholder="Search transcript…">
+      </div>
+      <div class="zt-log-entries" style="opacity:0.45;pointer-events:none">
+        <div class="zt-entry">
+          <span class="zt-entry-time">10:06:47</span>
+          <span class="zt-entry-name" style="color:var(--c5)">Francis</span>
+          <span class="zt-entry-msg">agreed, and we've been sitting on this since March, let's just do it</span>
+        </div>
+        <div class="zt-entry">
+          <span class="zt-entry-time">10:07:03</span>
+          <span class="zt-entry-name" style="color:var(--c2)">Chris J</span>
+          <span class="zt-entry-msg">ok pausing the recording real quick while we handle some credential stuff</span>
+        </div>
+      </div>
+    </div>
+    <div class="zt-footer">
+      <button class="zt-btn zt-btn--resume">▶ Resume</button>
+      <button class="zt-btn zt-btn--primary">⎘ Copy</button>
+      <div class="zt-spacer"></div>
+      <button class="zt-btn">↓ Download ▾</button>
+      <button class="zt-btn zt-btn--stop">■ Stop</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════════
+     SCENE 3 — COLLAPSED PILL
+═══════════════════════════════════════════════════ -->
+<div class="scene-label">State: Collapsed pill</div>
+
+<div class="zoom-bg">
+  <div class="zoom-video-row">
+    <div class="zoom-avatar">👤</div>
+    <div class="zoom-avatar">👤</div>
+    <div class="zoom-avatar">👤</div>
+    <div class="zoom-avatar">👤</div>
+  </div>
+  <div class="widget-collapsed">
+    <div class="zt-collapsed-dot" style="background:#ef4444;box-shadow:0 0 6px rgba(239,68,68,0.6)"></div>
+    <div class="zt-collapsed-speakers">
+      <div class="zt-speaker-chip">
+        <div class="zt-chip-dot" style="background:var(--c0)"></div>Patrick
+      </div>
+      <span class="zt-collapsed-text" style="font-size:10px;opacity:0.5">speaking</span>
+    </div>
+    <span class="zt-collapsed-text"><strong>84</strong> lines · 23:47</span>
+    <button class="zt-btn-icon" style="margin-left:4px" title="Expand">+</button>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════════
+     SCENE 4 — MULTIPLE LINES SETTLING
+═══════════════════════════════════════════════════ -->
+<div class="scene-label">State: Active — multiple lines settling</div>
+
+<div class="zoom-bg">
+  <div class="zoom-video-row">
+    <div class="zoom-avatar">👤</div>
+    <div class="zoom-avatar">👤</div>
+    <div class="zoom-avatar">👤</div>
+    <div class="zoom-avatar">👤</div>
+  </div>
+  <div class="widget-wrap">
+    <div class="zt-header">
+      <div class="zt-dot"></div>
+      <input class="zt-session-name" value="Rowan Dev Sync" placeholder="Name this meeting…">
+      <div class="zt-meta">
+        <span class="zt-timer">24:02</span>
+        <span class="zt-count"><strong>91</strong> lines</span>
+      </div>
+      <button class="zt-btn-icon mode-btn" title="Toggle light/dark" onclick="toggleMode()">☀︎</button>
+      <button class="zt-btn-icon active">–</button>
+    </div>
+    <div class="zt-tabs">
+      <div class="zt-tab active">Log</div>
+      <div class="zt-tab">Stats</div>
+    </div>
+    <div class="zt-log-panel">
+      <div class="zt-search">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><circle cx="6.5" cy="6.5" r="5" stroke="currentColor" stroke-width="1.5"/><path d="M10.5 10.5L14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        <input placeholder="Search transcript…">
+      </div>
+      <div class="zt-log-entries">
+        <div class="zt-entry">
+          <span class="zt-entry-time">10:06:47</span>
+          <span class="zt-entry-name" style="color:var(--c5)">Francis</span>
+          <span class="zt-entry-msg">agreed, and we've been sitting on this since March, let's just do it</span>
+        </div>
+        <div class="zt-entry zt-entry--pending">
+          <span class="zt-entry-time">10:07:12</span>
+          <span class="zt-entry-name" style="color:var(--c2)">Chris J</span>
+          <span class="zt-entry-msg">ok so Dave if you want to kick off the transfer I can stay on the settings page with you</span>
+        </div>
+        <div class="zt-entry zt-entry--pending">
+          <span class="zt-entry-time">10:07:18</span>
+          <span class="zt-entry-name" style="color:var(--c0)">Patrick</span>
+          <span class="zt-entry-msg">yeah go ahead</span>
+        </div>
+        <div class="zt-entry zt-entry--pending">
+          <span class="zt-entry-time">10:07:24</span>
+          <span class="zt-entry-name" style="color:var(--c3)">Dave</span>
+          <span class="zt-entry-msg">alright clicking transfer now</span>
+        </div>
+      </div>
+    </div>
+    <div class="zt-footer">
+      <button class="zt-btn zt-btn--pause">⏸ Pause</button>
+      <button class="zt-btn zt-btn--primary">⎘ Copy</button>
+      <div class="zt-spacer"></div>
+      <button class="zt-btn">↓ Download ▾</button>
+      <button class="zt-btn zt-btn--stop">■ Stop</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════════
+     SCENE 5 — WAITING FOR CAPTIONS
+═══════════════════════════════════════════════════ -->
+<div class="scene-label">State: Waiting for captions</div>
+
+<div class="zoom-bg">
+  <div class="zoom-video-row">
+    <div class="zoom-avatar">👤</div>
+    <div class="zoom-avatar">👤</div>
+    <div class="zoom-avatar">👤</div>
+    <div class="zoom-avatar">👤</div>
+  </div>
+  <div class="widget-wrap">
+    <div class="zt-header">
+      <div class="zt-dot zt-dot--waiting"></div>
+      <input class="zt-session-name" placeholder="Name this meeting…">
+      <div class="zt-meta">
+        <span class="zt-timer">0:03</span>
+        <span class="zt-count"><strong>0</strong> lines</span>
+      </div>
+      <button class="zt-btn-icon mode-btn" title="Toggle light/dark" onclick="toggleMode()">☀︎</button>
+      <button class="zt-btn-icon active">–</button>
+    </div>
+    <div class="zt-tabs">
+      <div class="zt-tab active">Log</div>
+      <div class="zt-tab">Stats</div>
+    </div>
+    <div class="zt-log-panel">
+      <div class="zt-idle">
+        <div class="zt-dot zt-dot--waiting" style="animation:none"></div>
+        Waiting for captions — click <strong style="color:var(--text-idle-strong);margin:0 4px">Show Captions</strong> in Zoom if needed
+      </div>
+    </div>
+    <div class="zt-footer">
+      <button class="zt-btn zt-btn--pause" disabled style="opacity:0.35;cursor:default">⏸ Pause</button>
+      <button class="zt-btn zt-btn--primary" disabled style="opacity:0.35;cursor:default">⎘ Copy</button>
+      <div class="zt-spacer"></div>
+      <button class="zt-btn" disabled style="opacity:0.35;cursor:default">↓ Download ▾</button>
+      <button class="zt-btn zt-btn--stop">■ Stop</button>
+    </div>
+  </div>
+</div>
+
+
+<script>
+  // ── Mode toggle ───────────────────────────────────────
+  function toggleMode() {
+    const dark = document.body.classList.toggle('dark');
+    document.querySelectorAll('.mode-btn').forEach(btn => {
+      btn.textContent = dark ? '🌙' : '☀︎';
+    });
+  }
+
+  // ── Tab switching ─────────────────────────────────────
+  function switchTab(name, el) {
+    const widget = el.closest('.widget-wrap');
+    widget.querySelectorAll('.zt-tab').forEach(t => t.classList.remove('active'));
+    widget.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+    el.classList.add('active');
+    const panel = widget.querySelector('#tab-' + name);
+    if (panel) panel.classList.add('active');
+  }
+
+  // ── Collapse (scene 1) ────────────────────────────────
+  let collapsed = false;
+  function toggleCollapse() {
+    const wrap = document.getElementById('widget-main');
+    collapsed = !collapsed;
+    wrap.style.display = collapsed ? 'none' : '';
+  }
+
+  // ── Pause toggle ──────────────────────────────────────
+  let paused = false;
+  function togglePause() {
+    paused = !paused;
+    const dot = document.getElementById('dot-main');
+    const btn = document.getElementById('footer-pause-btn');
+    dot.className = paused ? 'zt-dot zt-dot--idle' : 'zt-dot';
+    if (btn) {
+      btn.className = paused ? 'zt-btn zt-btn--resume' : 'zt-btn zt-btn--pause';
+      btn.textContent = paused ? '▶ Resume' : '⏸ Pause';
+    }
+  }
+
+  // ── Download dropdown ─────────────────────────────────
+  function toggleDropdown(id) {
+    const dd = document.getElementById(id);
+    dd.classList.toggle('open');
+    const close = e => {
+      if (!dd.contains(e.target)) { dd.classList.remove('open'); document.removeEventListener('click', close); }
+    };
+    setTimeout(() => document.addEventListener('click', close), 0);
+  }
+
+  // ── Copy button ───────────────────────────────────────
+  function onCopyClick(btn) {
+    btn.textContent = '✓ Copied';
+    setTimeout(() => btn.textContent = '⎘ Copy', 2000);
+  }
+
+  // ── Log search ────────────────────────────────────────
+  function filterLog(query) {
+    const entries = document.querySelectorAll('#log-entries .zt-entry');
+    const q = query.toLowerCase().trim();
+    entries.forEach(entry => {
+      const text = entry.textContent.toLowerCase();
+      if (!q || text.includes(q)) {
+        entry.style.display = '';
+        const msgEl = entry.querySelector('.zt-entry-msg');
+        if (msgEl) {
+          if (q) {
+            const orig = msgEl.textContent;
+            const idx = orig.toLowerCase().indexOf(q);
+            if (idx >= 0) {
+              msgEl.innerHTML = escH(orig.slice(0, idx))
+                + '<mark>' + escH(orig.slice(idx, idx + q.length)) + '</mark>'
+                + escH(orig.slice(idx + q.length));
+            }
+          } else {
+            msgEl.innerHTML = escH(msgEl.textContent);
+          }
+        }
+      } else {
+        entry.style.display = 'none';
+      }
+    });
+  }
+
+  function escH(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  // ── Live timer (scene 1) ──────────────────────────────
+  let seconds = 23 * 60 + 47;
+  setInterval(() => {
+    if (!paused) {
+      seconds++;
+      const m = Math.floor(seconds / 60);
+      const s = seconds % 60;
+      const el = document.getElementById('timer-main');
+      if (el) el.textContent = m + ':' + String(s).padStart(2, '0');
+    }
+  }, 1000);
+</script>
+</body>
+</html>

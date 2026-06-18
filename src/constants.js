@@ -1,0 +1,11 @@
+export const POLL_MS = 800;
+export const SETTLE_MS = 3000;
+export const CAPTION_PANEL_WIDTH = 500;
+export const MAX_INJECT_RETRIES = 40;
+export const MIN_PANEL_WIDTH = 320;
+export const MAX_PANEL_WIDTH = 900;
+export const MIN_LOG_HEIGHT = 100;
+export const MAX_LOG_HEIGHT = 700;
+export const DEFAULT_LOG_HEIGHT = 160;
+export const SPEAKER_PALETTE_DARK = ['#7dd3fc', '#f9a8d4', '#fcd34d', '#86efac', '#c4b5fd', '#fb923c', '#67e8f9', '#f87171'];
+export const SPEAKER_PALETTE_LIGHT = ['#0284c7', '#be185d', '#b45309', '#15803d', '#7c3aed', '#c2410c', '#0891b2', '#b91c1c'];
