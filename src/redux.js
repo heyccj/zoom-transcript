@@ -57,8 +57,8 @@ export function findReduxStore(doc) {
   roots.forEach(function (root) { collectFibers(root, fibers, 40); });
 
   for (let i = 0; i < fibers.length; i++) {
-      let store = storeFromFiber(fibers[i], new Set());
-    if (app.store) return app.store;
+    let store = storeFromFiber(fibers[i], new Set());
+    if (store) return store;
   }
   return null;
 }
@@ -94,7 +94,7 @@ export function attendeeNameMap(state) {
 
 export function activeSharerMap(reduxState) {
   let map = {};
-  eachAttendee(state, function (a, id) {
+  eachAttendee(reduxState, function (a, id) {
     if (!a.sharerOn || id == null) return;
     map[id] = a.displayName || a.name || 'Someone';
   });
@@ -203,14 +203,14 @@ export function linesFromMessageLatest(state) {
 }
 
 export function extractLines(reduxState) {
-  let names = attendeeNameMap(state);
-  let fromAll = linesFromAllMessages(state, names);
+  let names = attendeeNameMap(reduxState);
+  let fromAll = linesFromAllMessages(reduxState, names);
   if (fromAll.length) return fromAll;
 
-  let fromNew = linesFromNewLTMessage(state, names);
+  let fromNew = linesFromNewLTMessage(reduxState, names);
   if (fromNew.length) return fromNew;
 
-  return linesFromMessageLatest(state);
+  return linesFromMessageLatest(reduxState);
 }
 
 export function meetingChatThreads(state) {
@@ -270,11 +270,11 @@ export function chatMessageId(thread, msg, text, time, name) {
 }
 
 export function extractChatLines(reduxState) {
-  let names = attendeeNameMap(state);
+  let names = attendeeNameMap(reduxState);
   let rows = [];
   let seenIds = new Set();
 
-  meetingChatThreads(state).forEach(function (thread) {
+  meetingChatThreads(reduxState).forEach(function (thread) {
     if (!thread) return;
     let msgs = Array.isArray(thread.chatMsgs) && thread.chatMsgs.length
       ? thread.chatMsgs
@@ -308,9 +308,9 @@ export function extractChatLines(reduxState) {
 }
 
 export function probeState(reduxState) {
-  let lt = ltBuckets(state);
+  let lt = ltBuckets(reduxState);
   return {
-    attendeeCount: Object.keys(attendeeNameMap(state)).length,
+    attendeeCount: Object.keys(attendeeNameMap(reduxState)).length,
     liveTranscriptionKeys: lt.map(function (b) {
       return {
         allMessages: b.allMessages ? Object.keys(b.allMessages).length : 0,
@@ -319,8 +319,8 @@ export function probeState(reduxState) {
         hasLTStarted: !!b.hasLTStarted
       };
     }),
-    messageLatest: !!(state.meeting && state.meeting.messageLatest),
-    chatThreads: meetingChatThreads(state).length,
+    messageLatest: !!(reduxState.meeting && reduxState.meeting.messageLatest),
+    chatThreads: meetingChatThreads(reduxState).length,
     chatLines: extractChatLines(reduxState).length,
     lines: extractLines(reduxState).slice(-5)
   };

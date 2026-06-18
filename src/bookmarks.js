@@ -350,7 +350,7 @@ export function ensureBookmarkWiring(mount, doc) {
 export function resolveEntryFromRow(row) {
   let entryKey = row.getAttribute('data-key');
   if (!entryKey) return null;
-  let idx = parseInt(row.getAttribute('data-app.log-index'), 10);
+  let idx = parseInt(row.getAttribute('data-log-index'), 10);
   let entry = (!isNaN(idx) && app.log[idx]) ? app.log[idx] : findLogEntry(entryKey);
   if (!entry) {
     let msgEl = row.querySelector('.__zt-entry-msg');

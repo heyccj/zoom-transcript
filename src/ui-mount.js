@@ -1,7 +1,7 @@
 import { app } from './state.js';
 import { ensureStyles } from './styles.js';
 import { bookmarkIconHtml, ensureBookmarkWiring } from './bookmarks.js';
-import { wireMountEvents, ensureUiRefs } from './ui-core.js';
+import { wireMountEvents, ensureUiRefs, mountIsHealthy } from './ui-core.js';
 import { applyMode, applyCollapsed, setCollapsed } from './controls.js';
 import { findCaptionBox, lockPanelWidth, activeDoc, tryDismissCaptionLanguageModal, tryShowCaptions, startCaptionsAutoEnable } from './caption-panel.js';
 import { setupAutoDownloadHooks } from './export.js';
@@ -33,14 +33,14 @@ export function createMount(doc) {
       '<button id="__zt-collapse-btn" class="__zt-btn-icon" type="button" title="Collapse">–</button>',
     '</div>',
     '<div id="__zt-paused-banner" class="__zt-paused-banner" style="display:none">',
-      '⏸ Recording app.paused — captions are not being saved',
+      '⏸ Recording paused — captions are not being saved',
       '<button id="__zt-banner-resume" class="__zt-btn" type="button">Resume</button>',
     '</div>',
     '<div class="__zt-tabs">',
-      '<div class="__zt-tab" data-tab="app.log">Log</div>',
+      '<div class="__zt-tab" data-tab="log">Log</div>',
       '<div class="__zt-tab" data-tab="stats">Stats</div>',
     '</div>',
-    '<div class="__zt-tab-panel" data-panel="app.log">',
+    '<div class="__zt-tab-panel" data-panel="log">',
       '<div class="__zt-search">',
         '<svg width="12" height="12" viewBox="0 0 16 16" fill="none"><circle cx="6.5" cy="6.5" r="5" stroke="currentColor" stroke-width="1.5"/><path d="M10.5 10.5L14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
         '<input id="__zt-search-input" placeholder="Search transcript…" spellcheck="false">',

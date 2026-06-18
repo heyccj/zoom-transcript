@@ -70,7 +70,7 @@ export function renderLogItems() {
     if (existing) continue;
     let continued = !e.marker && !e.chat && !!e.name && e.name === app.lastRenderedSpeaker;
     let node = buildEntryNode(doc, e, continued, false);
-    node.setAttribute('data-app.log-index', String(i));
+    node.setAttribute('data-log-index', String(i));
     if (animateNew && !e.marker) {
       node.classList.add('__zt-entry--just-logged');
       node.addEventListener('animationend', function () {

@@ -1,5 +1,5 @@
 # ZT Captions — Dev Plan
-**Reference files:** `src/` modules (source) · `zoom-transcript.js` (built bundle) · `mock-widget.html` (target design)
+**Reference files:** `src/` modules (source) · `zoom-transcript.js` (built bundle) · `test-harness.html` (local dev harness)
 
 **Build:** `npm run build` — bundles `src/index.js` → `zoom-transcript.js` for jsDelivr/bookmarklet.
 

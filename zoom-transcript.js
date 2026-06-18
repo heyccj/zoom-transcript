@@ -102,7 +102,7 @@
     widthKey: "__ztCaptionWidth",
     heightKey: "__ztCaptionHeight"
   };
-  var app2 = {
+  var app = {
     injectAttempted: false,
     pendingInjectSource: null,
     injectRetries: 0,
@@ -156,8 +156,8 @@
     lastPanelWatchAt: 0
   };
   function initAppState() {
-    app2.wcWin = getWebclientWindow();
-    keys.meetingId = getMeetingId(app2.wcWin);
+    app.wcWin = getWebclientWindow();
+    keys.meetingId = getMeetingId(app.wcWin);
     if (localStorage.getItem(keys.meetingKey) !== keys.meetingId) {
       localStorage.removeItem(keys.storageKey);
       localStorage.removeItem(keys.sessionKey);
@@ -165,17 +165,17 @@
       localStorage.removeItem(keys.bookmarksKey);
     }
     localStorage.setItem(keys.meetingKey, keys.meetingId);
-    app2.log = dedupLog(JSON.parse(localStorage.getItem(keys.storageKey) || "[]"));
-    app2.seen = new Set(app2.log.map(function(l) {
+    app.log = dedupLog(JSON.parse(localStorage.getItem(keys.storageKey) || "[]"));
+    app.seen = new Set(app.log.map(function(l) {
       return l.key;
     }));
-    app2.sessionName = localStorage.getItem(keys.sessionKey) || "";
-    app2.darkMode = localStorage.getItem(keys.darkKey) === "1";
-    app2.collapsed = localStorage.getItem(keys.collapsedKey) === "1";
+    app.sessionName = localStorage.getItem(keys.sessionKey) || "";
+    app.darkMode = localStorage.getItem(keys.darkKey) === "1";
+    app.collapsed = localStorage.getItem(keys.collapsedKey) === "1";
     let w = parseInt(localStorage.getItem(keys.widthKey), 10);
-    app2.panelWidth = isNaN(w) ? CAPTION_PANEL_WIDTH : Math.max(MIN_PANEL_WIDTH, Math.min(MAX_PANEL_WIDTH, w));
+    app.panelWidth = isNaN(w) ? CAPTION_PANEL_WIDTH : Math.max(MIN_PANEL_WIDTH, Math.min(MAX_PANEL_WIDTH, w));
     let h = parseInt(localStorage.getItem(keys.heightKey), 10);
-    app2.logHeight = isNaN(h) ? DEFAULT_LOG_HEIGHT : Math.max(MIN_LOG_HEIGHT, Math.min(MAX_LOG_HEIGHT, h));
+    app.logHeight = isNaN(h) ? DEFAULT_LOG_HEIGHT : Math.max(MIN_LOG_HEIGHT, Math.min(MAX_LOG_HEIGHT, h));
   }
 
   // src/redux.js
@@ -190,13 +190,13 @@
       if (looksLikeStore(props.store)) return props.store;
       if (props.value && looksLikeStore(props.value.store)) return props.value.store;
     }
-    let state2 = fiber.memoizedState;
-    while (state2) {
-      if (looksLikeStore(state2.memoizedState)) return state2.memoizedState;
-      if (state2.queue && looksLikeStore(state2.queue.lastRenderedState)) {
-        return state2.queue.lastRenderedState;
+    let state = fiber.memoizedState;
+    while (state) {
+      if (looksLikeStore(state.memoizedState)) return state.memoizedState;
+      if (state.queue && looksLikeStore(state.queue.lastRenderedState)) {
+        return state.queue.lastRenderedState;
       }
-      state2 = state2.next;
+      state = state.next;
     }
     return storeFromFiber(fiber.child, seen) || storeFromFiber(fiber.sibling, seen);
   }
@@ -226,31 +226,31 @@
     });
     for (let i = 0; i < fibers.length; i++) {
       let store = storeFromFiber(fibers[i], /* @__PURE__ */ new Set());
-      if (app.store) return app.store;
+      if (store) return store;
     }
     return null;
   }
-  function attendeeLists(state2) {
+  function attendeeLists(state) {
     let lists = [];
-    if (state2.attendeesList && state2.attendeesList.attendeesList) {
-      lists.push(state2.attendeesList.attendeesList);
+    if (state.attendeesList && state.attendeesList.attendeesList) {
+      lists.push(state.attendeesList.attendeesList);
     }
-    if (state2.attendeesList && Array.isArray(state2.attendeesList.list)) {
-      lists.push(state2.attendeesList.list);
+    if (state.attendeesList && Array.isArray(state.attendeesList.list)) {
+      lists.push(state.attendeesList.list);
     }
     return lists;
   }
-  function eachAttendee(state2, fn) {
-    attendeeLists(state2).forEach(function(list) {
+  function eachAttendee(state, fn) {
+    attendeeLists(state).forEach(function(list) {
       list.forEach(function(a) {
         if (!a) return;
         fn(a, a.userId != null ? a.userId : a.zoomID);
       });
     });
   }
-  function attendeeNameMap(state2) {
+  function attendeeNameMap(state) {
     let map = {};
-    eachAttendee(state2, function(a, id) {
+    eachAttendee(state, function(a, id) {
       let name = a.displayName || a.name;
       if (id != null && name) map[id] = name;
     });
@@ -258,7 +258,7 @@
   }
   function activeSharerMap(reduxState) {
     let map = {};
-    eachAttendee(state, function(a, id) {
+    eachAttendee(reduxState, function(a, id) {
       if (!a.sharerOn || id == null) return;
       map[id] = a.displayName || a.name || "Someone";
     });
@@ -285,18 +285,18 @@
     let s = String(d.getSeconds()).padStart(2, "0");
     return d.getHours() + ":" + m + ":" + s;
   }
-  function ltBuckets(state2) {
+  function ltBuckets(state) {
     let buckets = [];
-    if (state2.liveTranscription) buckets.push(state2.liveTranscription);
-    if (state2.newLiveTranscription && state2.newLiveTranscription !== state2.liveTranscription) {
-      buckets.push(state2.newLiveTranscription);
+    if (state.liveTranscription) buckets.push(state.liveTranscription);
+    if (state.newLiveTranscription && state.newLiveTranscription !== state.liveTranscription) {
+      buckets.push(state.newLiveTranscription);
     }
     return buckets;
   }
-  function linesFromAllMessages(state2, names) {
+  function linesFromAllMessages(state, names) {
     let rows = [];
     let seenKeys = /* @__PURE__ */ new Set();
-    ltBuckets(state2).forEach(function(lt) {
+    ltBuckets(state).forEach(function(lt) {
       if (!lt || !lt.allMessages) return;
       let order = Array.isArray(lt.messagesOrder) ? lt.messagesOrder.slice() : [];
       let ids = order.length ? order : Object.keys(lt.allMessages);
@@ -321,9 +321,9 @@
     });
     return rows;
   }
-  function linesFromNewLTMessage(state2, names) {
+  function linesFromNewLTMessage(state, names) {
     let rows = [];
-    ltBuckets(state2).forEach(function(lt) {
+    ltBuckets(state).forEach(function(lt) {
       if (!lt || !lt.newLTMessage) return;
       Object.keys(lt.newLTMessage).forEach(function(id) {
         let msg = lt.newLTMessage[id];
@@ -340,8 +340,8 @@
     });
     return rows;
   }
-  function linesFromMessageLatest(state2) {
-    let text = normalizeText(state2.meeting && state2.meeting.messageLatest);
+  function linesFromMessageLatest(state) {
+    let text = normalizeText(state.meeting && state.meeting.messageLatest);
     if (!text) return [];
     return [{
       time: formatTime(Date.now()),
@@ -352,15 +352,15 @@
     }];
   }
   function extractLines(reduxState) {
-    let names = attendeeNameMap(state);
-    let fromAll = linesFromAllMessages(state, names);
+    let names = attendeeNameMap(reduxState);
+    let fromAll = linesFromAllMessages(reduxState, names);
     if (fromAll.length) return fromAll;
-    let fromNew = linesFromNewLTMessage(state, names);
+    let fromNew = linesFromNewLTMessage(reduxState, names);
     if (fromNew.length) return fromNew;
-    return linesFromMessageLatest(state);
+    return linesFromMessageLatest(reduxState);
   }
-  function meetingChatThreads(state2) {
-    let nc = state2.newChat;
+  function meetingChatThreads(state) {
+    let nc = state.newChat;
     if (nc && Array.isArray(nc.meetingChat)) return nc.meetingChat;
     return [];
   }
@@ -408,10 +408,10 @@
     );
   }
   function extractChatLines(reduxState) {
-    let names = attendeeNameMap(state);
+    let names = attendeeNameMap(reduxState);
     let rows = [];
     let seenIds = /* @__PURE__ */ new Set();
-    meetingChatThreads(state).forEach(function(thread) {
+    meetingChatThreads(reduxState).forEach(function(thread) {
       if (!thread) return;
       let msgs = Array.isArray(thread.chatMsgs) && thread.chatMsgs.length ? thread.chatMsgs : [thread];
       msgs.forEach(function(msg) {
@@ -438,9 +438,9 @@
     return rows;
   }
   function probeState(reduxState) {
-    let lt = ltBuckets(state);
+    let lt = ltBuckets(reduxState);
     return {
-      attendeeCount: Object.keys(attendeeNameMap(state)).length,
+      attendeeCount: Object.keys(attendeeNameMap(reduxState)).length,
       liveTranscriptionKeys: lt.map(function(b) {
         return {
           allMessages: b.allMessages ? Object.keys(b.allMessages).length : 0,
@@ -449,8 +449,8 @@
           hasLTStarted: !!b.hasLTStarted
         };
       }),
-      messageLatest: !!(state.meeting && state.meeting.messageLatest),
-      chatThreads: meetingChatThreads(state).length,
+      messageLatest: !!(reduxState.meeting && reduxState.meeting.messageLatest),
+      chatThreads: meetingChatThreads(reduxState).length,
       chatLines: extractChatLines(reduxState).length,
       lines: extractLines(reduxState).slice(-5)
     };
@@ -458,8 +458,8 @@
 
   // src/caption-panel.js
   function activeDoc() {
-    app2.wcWin = getWebclientWindow();
-    return app2.wcWin.document;
+    app.wcWin = getWebclientWindow();
+    return app.wcWin.document;
   }
   function findCaptionBox(doc) {
     let sub = doc.getElementById("live-transcription-subtitle");
@@ -479,13 +479,13 @@
   }
   function lockPanelWidth(el) {
     if (!el) return;
-    el.style.setProperty("width", app2.panelWidth + "px", "important");
-    el.style.setProperty("min-width", app2.panelWidth + "px", "important");
-    el.style.setProperty("max-width", app2.panelWidth + "px", "important");
+    el.style.setProperty("width", app.panelWidth + "px", "important");
+    el.style.setProperty("min-width", app.panelWidth + "px", "important");
+    el.style.setProperty("max-width", app.panelWidth + "px", "important");
     el.style.setProperty("box-sizing", "border-box", "important");
   }
   function applyPanelWidth(doc) {
-    doc.documentElement.style.setProperty("--zt-panel-width", app2.panelWidth + "px");
+    doc.documentElement.style.setProperty("--zt-panel-width", app.panelWidth + "px");
     let box = findCaptionBox(doc);
     if (box) {
       lockPanelWidth(box);
@@ -496,7 +496,7 @@
     if (dock) lockPanelWidth(dock);
   }
   function applyLogHeight(doc) {
-    doc.documentElement.style.setProperty("--zt-log-height", app2.logHeight + "px");
+    doc.documentElement.style.setProperty("--zt-log-height", app.logHeight + "px");
   }
   function findShowCaptionsButton(doc) {
     let candidates = doc.querySelectorAll("button[title], button[aria-label]");
@@ -544,7 +544,7 @@
   function tryDismissCaptionLanguageModal(doc) {
     let modal = findCaptionLanguageModal(doc);
     if (!modal) return false;
-    if (Date.now() - app2.langModalSaveAt < 1500) return true;
+    if (Date.now() - app.langModalSaveAt < 1500) return true;
     selectEnglishInLanguageModal(doc, modal);
     let valueEl = modal.querySelector(".transcription-language__single-value");
     let current = valueEl ? valueEl.textContent.trim() : "";
@@ -560,20 +560,20 @@
       }
     }
     if (!saveBtn) return false;
-    app2.langModalSaveAt = Date.now();
+    app.langModalSaveAt = Date.now();
     saveBtn.click();
     console.info("[ZT Captions] Caption language modal \u2014 English + Save.");
     return true;
   }
   function tryShowCaptions(doc, force) {
     if (captionsVisible(doc)) {
-      app2.captionsEnabledOnce = true;
+      app.captionsEnabledOnce = true;
       return true;
     }
-    if (!force && Date.now() - app2.openCaptionAttemptAt < 3e3) return false;
+    if (!force && Date.now() - app.openCaptionAttemptAt < 3e3) return false;
     let btn = findShowCaptionsButton(doc);
     if (!btn) return false;
-    app2.openCaptionAttemptAt = Date.now();
+    app.openCaptionAttemptAt = Date.now();
     btn.click();
     console.info("[ZT Captions] Clicked Show Captions.");
     setTimeout(function() {
@@ -585,27 +585,27 @@
     return true;
   }
   function startCaptionsAutoEnable(doc) {
-    if (app2.captionsEnableTimer || app2.captionsEnabledOnce) return;
+    if (app.captionsEnableTimer || app.captionsEnabledOnce) return;
     let attempts = 0;
     let maxAttempts = 40;
     function tick() {
       if (captionsVisible(doc)) {
-        app2.captionsEnabledOnce = true;
-        if (app2.captionsEnableTimer) clearInterval(app2.captionsEnableTimer);
-        app2.captionsEnableTimer = null;
+        app.captionsEnabledOnce = true;
+        if (app.captionsEnableTimer) clearInterval(app.captionsEnableTimer);
+        app.captionsEnableTimer = null;
         return;
       }
       attempts++;
       tryShowCaptions(doc, attempts <= 8);
-      if (attempts >= maxAttempts && app2.captionsEnableTimer) {
-        clearInterval(app2.captionsEnableTimer);
-        app2.captionsEnableTimer = null;
+      if (attempts >= maxAttempts && app.captionsEnableTimer) {
+        clearInterval(app.captionsEnableTimer);
+        app.captionsEnableTimer = null;
         console.warn("[ZT Captions] Could not auto-enable captions \u2014 click Show Captions manually.");
       }
     }
     tryShowCaptions(doc, true);
     tick();
-    app2.captionsEnableTimer = setInterval(tick, 3e3);
+    app.captionsEnableTimer = setInterval(tick, 3e3);
   }
 
   // src/utils.js
@@ -634,52 +634,52 @@
 
   // src/bookmarks.js
   function getSpeakerColor(name) {
-    if (!name) return app2.darkMode ? "#9aa3af" : "#6b7280";
-    if (app2.speakerColorMap[name] == null) {
-      app2.speakerColorMap[name] = app2.speakerColorIdx % SPEAKER_PALETTE_DARK.length;
-      app2.speakerColorIdx++;
+    if (!name) return app.darkMode ? "#9aa3af" : "#6b7280";
+    if (app.speakerColorMap[name] == null) {
+      app.speakerColorMap[name] = app.speakerColorIdx % SPEAKER_PALETTE_DARK.length;
+      app.speakerColorIdx++;
     }
-    let palette = app2.darkMode ? SPEAKER_PALETTE_DARK : SPEAKER_PALETTE_LIGHT;
-    return palette[app2.speakerColorMap[name]];
+    let palette = app.darkMode ? SPEAKER_PALETTE_DARK : SPEAKER_PALETTE_LIGHT;
+    return palette[app.speakerColorMap[name]];
   }
   function latestPendingSpeaker() {
-    if (!app2.pendingLines) return null;
-    for (let i = app2.pendingLines.length - 1; i >= 0; i--) {
-      if (app2.pendingLines[i].msg && app2.pendingLines[i].name) return app2.pendingLines[i].name;
+    if (!app.pendingLines) return null;
+    for (let i = app.pendingLines.length - 1; i >= 0; i--) {
+      if (app.pendingLines[i].msg && app.pendingLines[i].name) return app.pendingLines[i].name;
     }
     return null;
   }
   function syncSeenFromLog() {
-    app2.seen = new Set(app2.log.map(function(l) {
+    app.seen = new Set(app.log.map(function(l) {
       return l.key;
     }));
-    app2.pauseSkipped.forEach(function(k) {
-      app2.seen.add(k);
+    app.pauseSkipped.forEach(function(k) {
+      app.seen.add(k);
     });
   }
   function rebuildSpeakerStats() {
-    app2.speakerStats = {};
-    app2.log.forEach(function(e) {
+    app.speakerStats = {};
+    app.log.forEach(function(e) {
       if (!e.name || e.marker || e.chat) return;
-      app2.speakerStats[e.name] = (app2.speakerStats[e.name] || 0) + 1;
+      app.speakerStats[e.name] = (app.speakerStats[e.name] || 0) + 1;
     });
   }
   function loadBookmarks() {
     try {
-      app2.bookmarks = JSON.parse(localStorage.getItem(keys.bookmarksKey) || "[]");
-      if (!Array.isArray(app2.bookmarks)) app2.bookmarks = [];
+      app.bookmarks = JSON.parse(localStorage.getItem(keys.bookmarksKey) || "[]");
+      if (!Array.isArray(app.bookmarks)) app.bookmarks = [];
     } catch (e) {
-      app2.bookmarks = [];
+      app.bookmarks = [];
     }
     rebuildBookmarkByKey();
   }
   function persistBookmarks() {
-    localStorage.setItem(keys.bookmarksKey, JSON.stringify(app2.bookmarks));
+    localStorage.setItem(keys.bookmarksKey, JSON.stringify(app.bookmarks));
   }
   function rebuildBookmarkByKey() {
-    app2.bookmarkByKey = /* @__PURE__ */ new Map();
-    app2.bookmarks.forEach(function(b) {
-      if (b.entryKey && b.label) app2.bookmarkByKey.set(b.entryKey, b.label);
+    app.bookmarkByKey = /* @__PURE__ */ new Map();
+    app.bookmarks.forEach(function(b) {
+      if (b.entryKey && b.label) app.bookmarkByKey.set(b.entryKey, b.label);
     });
   }
   function bookmarkIconHtml(size) {
@@ -691,8 +691,8 @@
     btn.innerHTML = bookmarkIconHtml(size || 12);
   }
   function findLogEntry(entryKey) {
-    for (let i = 0; i < app2.log.length; i++) {
-      if (app2.log[i].key === entryKey) return app2.log[i];
+    for (let i = 0; i < app.log.length; i++) {
+      if (app.log[i].key === entryKey) return app.log[i];
     }
     return null;
   }
@@ -701,10 +701,10 @@
     if (!label) return false;
     let entry = entryHint || findLogEntry(entryKey);
     if (!entry || entry.marker) return false;
-    for (let i = 0; i < app2.bookmarks.length; i++) {
-      if (app2.bookmarks[i].entryKey === entryKey && app2.bookmarks[i].label === label) return false;
+    for (let i = 0; i < app.bookmarks.length; i++) {
+      if (app.bookmarks[i].entryKey === entryKey && app.bookmarks[i].label === label) return false;
     }
-    app2.bookmarks.push({
+    app.bookmarks.push({
       id: "bm-" + Date.now() + "-" + Math.random().toString(36).slice(2, 7),
       label,
       entryKey,
@@ -721,9 +721,9 @@
     label = String(label || "").trim();
     if (!label) return false;
     let bm = null;
-    for (let i = 0; i < app2.bookmarks.length; i++) {
-      if (app2.bookmarks[i].entryKey === entryKey) {
-        bm = app2.bookmarks[i];
+    for (let i = 0; i < app.bookmarks.length; i++) {
+      if (app.bookmarks[i].entryKey === entryKey) {
+        bm = app.bookmarks[i];
         break;
       }
     }
@@ -736,41 +736,41 @@
   }
   function removeBookmark(entryKey) {
     let idx = -1;
-    for (let i = 0; i < app2.bookmarks.length; i++) {
-      if (app2.bookmarks[i].entryKey === entryKey) {
+    for (let i = 0; i < app.bookmarks.length; i++) {
+      if (app.bookmarks[i].entryKey === entryKey) {
         idx = i;
         break;
       }
     }
     if (idx < 0) return false;
-    app2.bookmarks.splice(idx, 1);
+    app.bookmarks.splice(idx, 1);
     rebuildBookmarkByKey();
     persistBookmarks();
     syncBookmarkMarkers();
     return true;
   }
   function setBookmarkMode(on) {
-    app2.bookmarkMode = !!on;
-    if (!app2.bookmarkMode) hideBookmarkNameDialog();
-    if (!app2.ui || !app2.ui.mount) return;
-    app2.ui.mount.classList.toggle("__zt-bookmark-mode", app2.bookmarkMode);
-    if (app2.ui.bookmarkBtn) {
-      app2.ui.bookmarkBtn.classList.toggle("__zt-btn-icon--active", app2.bookmarkMode);
-      app2.ui.bookmarkBtn.title = app2.bookmarkMode ? "Click a name or line to bookmark" : "Add bookmark";
+    app.bookmarkMode = !!on;
+    if (!app.bookmarkMode) hideBookmarkNameDialog();
+    if (!app.ui || !app.ui.mount) return;
+    app.ui.mount.classList.toggle("__zt-bookmark-mode", app.bookmarkMode);
+    if (app.ui.bookmarkBtn) {
+      app.ui.bookmarkBtn.classList.toggle("__zt-btn-icon--active", app.bookmarkMode);
+      app.ui.bookmarkBtn.title = app.bookmarkMode ? "Click a name or line to bookmark" : "Add bookmark";
     }
   }
   function toggleBookmarkMode() {
-    setBookmarkMode(!app2.bookmarkMode);
+    setBookmarkMode(!app.bookmarkMode);
   }
-  app2.bookmarkDialogCtx = null;
+  app.bookmarkDialogCtx = null;
   function hideBookmarkNameDialog() {
-    if (app2.ui && app2.ui.bookmarkDialog) app2.ui.bookmarkDialog.style.display = "none";
-    app2.bookmarkDialogCtx = null;
+    if (app.ui && app.ui.bookmarkDialog) app.ui.bookmarkDialog.style.display = "none";
+    app.bookmarkDialogCtx = null;
   }
   function commitBookmarkNameDialog() {
-    if (!app2.bookmarkDialogCtx || !app2.ui || !app2.ui.bookmarkInput) return;
-    let label = app2.ui.bookmarkInput.value;
-    let ctx = app2.bookmarkDialogCtx;
+    if (!app.bookmarkDialogCtx || !app.ui || !app.ui.bookmarkInput) return;
+    let label = app.ui.bookmarkInput.value;
+    let ctx = app.bookmarkDialogCtx;
     hideBookmarkNameDialog();
     label = String(label || "").trim();
     if (!label) return;
@@ -781,19 +781,19 @@
     }
   }
   function removeBookmarkFromDialog() {
-    if (!app2.bookmarkDialogCtx || app2.bookmarkDialogCtx.mode !== "edit") return;
-    let entryKey = app2.bookmarkDialogCtx.entryKey;
+    if (!app.bookmarkDialogCtx || app.bookmarkDialogCtx.mode !== "edit") return;
+    let entryKey = app.bookmarkDialogCtx.entryKey;
     hideBookmarkNameDialog();
     removeBookmark(entryKey);
   }
   function openBookmarkDialog(mode, entryKey, entry, defaultLabel, callback) {
-    if (!app2.ui || !app2.ui.mount) {
+    if (!app.ui || !app.ui.mount) {
       if (callback) callback(null);
       return;
     }
-    ensureBookmarkDialogChrome(app2.ui.mount, app2.ui.mount.ownerDocument);
-    if (!app2.ui.bookmarkDialog || !app2.ui.bookmarkInput) {
-      let win = app2.ui.mount.ownerDocument.defaultView || window;
+    ensureBookmarkDialogChrome(app.ui.mount, app.ui.mount.ownerDocument);
+    if (!app.ui.bookmarkDialog || !app.ui.bookmarkInput) {
+      let win = app.ui.mount.ownerDocument.defaultView || window;
       let label = win.prompt(
         mode === "edit" ? "Rename bookmark:" : "Name this bookmark:",
         defaultLabel || ""
@@ -805,28 +805,28 @@
       else if (callback) callback(label);
       return;
     }
-    app2.bookmarkDialogCtx = {
+    app.bookmarkDialogCtx = {
       mode,
       entryKey,
       entry,
       callback
     };
-    if (app2.ui.bookmarkDialogTitle) {
-      app2.ui.bookmarkDialogTitle.textContent = mode === "edit" ? "Edit bookmark" : "Name bookmark";
+    if (app.ui.bookmarkDialogTitle) {
+      app.ui.bookmarkDialogTitle.textContent = mode === "edit" ? "Edit bookmark" : "Name bookmark";
     }
-    if (app2.ui.bookmarkRemoveBtn) {
-      app2.ui.bookmarkRemoveBtn.style.display = mode === "edit" ? "" : "none";
+    if (app.ui.bookmarkRemoveBtn) {
+      app.ui.bookmarkRemoveBtn.style.display = mode === "edit" ? "" : "none";
     }
-    app2.ui.bookmarkInput.value = defaultLabel || "";
-    app2.ui.bookmarkDialog.style.display = "flex";
-    app2.ui.bookmarkInput.focus();
-    app2.ui.bookmarkInput.select();
+    app.ui.bookmarkInput.value = defaultLabel || "";
+    app.ui.bookmarkDialog.style.display = "flex";
+    app.ui.bookmarkInput.focus();
+    app.ui.bookmarkInput.select();
   }
   function showBookmarkNameDialog(defaultLabel, entryKey, entry, callback) {
     openBookmarkDialog("add", entryKey, entry, defaultLabel, callback);
   }
   function showBookmarkEditDialog(entryKey, entry) {
-    openBookmarkDialog("edit", entryKey, entry, app2.bookmarkByKey.get(entryKey) || "", null);
+    openBookmarkDialog("edit", entryKey, entry, app.bookmarkByKey.get(entryKey) || "", null);
   }
   function ensureBookmarkDialogChrome(mount, doc) {
     let dialog = mount.querySelector("#__zt-bookmark-dialog");
@@ -848,9 +848,9 @@
       actions.appendChild(right);
       removeBtn.onclick = removeBookmarkFromDialog;
     }
-    if (app2.ui) {
-      app2.ui.bookmarkDialogTitle = dialog.querySelector("#__zt-bookmark-dialog-title");
-      app2.ui.bookmarkRemoveBtn = dialog.querySelector("#__zt-bookmark-remove");
+    if (app.ui) {
+      app.ui.bookmarkDialogTitle = dialog.querySelector("#__zt-bookmark-dialog-title");
+      app.ui.bookmarkRemoveBtn = dialog.querySelector("#__zt-bookmark-remove");
     }
   }
   function ensureBookmarkChip(row, key, label, doc) {
@@ -944,8 +944,8 @@
   function resolveEntryFromRow(row) {
     let entryKey = row.getAttribute("data-key");
     if (!entryKey) return null;
-    let idx = parseInt(row.getAttribute("data-app.log-index"), 10);
-    let entry = !isNaN(idx) && app2.log[idx] ? app2.log[idx] : findLogEntry(entryKey);
+    let idx = parseInt(row.getAttribute("data-log-index"), 10);
+    let entry = !isNaN(idx) && app.log[idx] ? app.log[idx] : findLogEntry(entryKey);
     if (!entry) {
       let msgEl = row.querySelector(".__zt-entry-msg");
       let timeEl = row.querySelector(".__zt-entry-time");
@@ -974,11 +974,11 @@
     handleBookmarkPlacementClick(e);
   }
   function handleBookmarkPlacementClick(e) {
-    if (!app2.bookmarkMode) return;
+    if (!app.bookmarkMode) return;
     if (e.target.closest && e.target.closest(".__zt-entry-bookmark")) return;
     let row = e.target.closest && e.target.closest(".__zt-entry");
     if (!row || row.classList.contains(".__zt-entry--marker")) return;
-    if (!app2.ui || !app2.ui.settledEl || !app2.ui.settledEl.contains(row)) return;
+    if (!app.ui || !app.ui.settledEl || !app.ui.settledEl.contains(row)) return;
     e.preventDefault();
     e.stopPropagation();
     let entryKey = row.getAttribute("data-key");
@@ -987,7 +987,7 @@
     if (!resolved) return;
     entryKey = resolved.entryKey;
     let entry = resolved.entry;
-    if (app2.bookmarkByKey.has(entryKey)) {
+    if (app.bookmarkByKey.has(entryKey)) {
       showBookmarkEditDialog(entryKey, entry);
       return;
     }
@@ -998,13 +998,13 @@
     });
   }
   function syncBookmarkMarkers() {
-    if (!app2.ui || !app2.ui.settledEl) return;
-    let doc = app2.ui.settledEl.ownerDocument;
-    let rows = app2.ui.settledEl.querySelectorAll(".__zt-entry");
+    if (!app.ui || !app.ui.settledEl) return;
+    let doc = app.ui.settledEl.ownerDocument;
+    let rows = app.ui.settledEl.querySelectorAll(".__zt-entry");
     for (let i = 0; i < rows.length; i++) {
       let row = rows[i];
       let key = row.getAttribute("data-key");
-      let label = key ? app2.bookmarkByKey.get(key) : null;
+      let label = key ? app.bookmarkByKey.get(key) : null;
       let bookmarked = !!label;
       row.classList.toggle("__zt-entry--bookmarked", bookmarked);
       if (bookmarked) {
@@ -1038,60 +1038,60 @@
     return item;
   }
   function logNearBottom() {
-    if (!app2.ui || !app2.ui.logEntriesEl) return true;
-    let el = app2.ui.logEntriesEl;
+    if (!app.ui || !app.ui.logEntriesEl) return true;
+    let el = app.ui.logEntriesEl;
     return el.scrollHeight - el.scrollTop - el.clientHeight < 60;
   }
   function scrollLogToBottom() {
-    if (app2.ui && app2.ui.logEntriesEl) app2.ui.logEntriesEl.scrollTop = app2.ui.logEntriesEl.scrollHeight;
+    if (app.ui && app.ui.logEntriesEl) app.ui.logEntriesEl.scrollTop = app.ui.logEntriesEl.scrollHeight;
   }
   function renderLogItems() {
-    if (!app2.ui || !app2.ui.settledEl) return;
-    if (app2.renderedLogCount === app2.log.length) return;
-    let doc = app2.ui.settledEl.ownerDocument;
+    if (!app.ui || !app.ui.settledEl) return;
+    if (app.renderedLogCount === app.log.length) return;
+    let doc = app.ui.settledEl.ownerDocument;
     let nearBottom = logNearBottom();
-    if (app2.log.length < app2.renderedLogCount) {
-      app2.ui.settledEl.innerHTML = "";
-      app2.renderedLogCount = 0;
-      app2.lastRenderedSpeaker = null;
+    if (app.log.length < app.renderedLogCount) {
+      app.ui.settledEl.innerHTML = "";
+      app.renderedLogCount = 0;
+      app.lastRenderedSpeaker = null;
       nearBottom = true;
     }
-    let animateNew = app2.renderedLogCount > 0;
-    for (let i = app2.renderedLogCount; i < app2.log.length; i++) {
-      let e = app2.log[i];
-      let existing = app2.ui.settledEl.querySelector('[data-key="' + e.key.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"]');
+    let animateNew = app.renderedLogCount > 0;
+    for (let i = app.renderedLogCount; i < app.log.length; i++) {
+      let e = app.log[i];
+      let existing = app.ui.settledEl.querySelector('[data-key="' + e.key.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"]');
       if (existing) continue;
-      let continued = !e.marker && !e.chat && !!e.name && e.name === app2.lastRenderedSpeaker;
+      let continued = !e.marker && !e.chat && !!e.name && e.name === app.lastRenderedSpeaker;
       let node = buildEntryNode(doc, e, continued, false);
-      node.setAttribute("data-app.log-index", String(i));
+      node.setAttribute("data-log-index", String(i));
       if (animateNew && !e.marker) {
         node.classList.add("__zt-entry--just-logged");
         node.addEventListener("animationend", function() {
           node.classList.remove("__zt-entry--just-logged");
         }, { once: true });
       }
-      app2.ui.settledEl.appendChild(node);
-      app2.lastRenderedSpeaker = e.marker || e.chat ? null : e.name || null;
+      app.ui.settledEl.appendChild(node);
+      app.lastRenderedSpeaker = e.marker || e.chat ? null : e.name || null;
     }
-    app2.renderedLogCount = app2.log.length;
+    app.renderedLogCount = app.log.length;
     syncBookmarkMarkers();
-    if (app2.searchQuery.trim()) applyLogFilter();
+    if (app.searchQuery.trim()) applyLogFilter();
     if (nearBottom) scrollLogToBottom();
   }
   function renderPendingItems() {
-    if (!app2.ui || !app2.ui.pendingEl) return;
-    let doc = app2.ui.pendingEl.ownerDocument;
+    if (!app.ui || !app.ui.pendingEl) return;
+    let doc = app.ui.pendingEl.ownerDocument;
     let nearBottom = logNearBottom();
-    app2.ui.pendingEl.innerHTML = "";
-    if (app2.paused || !app2.settleTimer || !app2.pendingLines || !app2.pendingLines.length) return;
-    let prevName = app2.lastRenderedSpeaker;
+    app.ui.pendingEl.innerHTML = "";
+    if (app.paused || !app.settleTimer || !app.pendingLines || !app.pendingLines.length) return;
+    let prevName = app.lastRenderedSpeaker;
     let appended = 0;
-    app2.pendingLines.forEach(function(line) {
+    app.pendingLines.forEach(function(line) {
       if (!line.msg) return;
       let key = makeKey(line.time, line.name, line.msg);
-      if (app2.seen.has(key)) return;
+      if (app.seen.has(key)) return;
       let continued = !!line.name && line.name === prevName;
-      app2.ui.pendingEl.appendChild(buildEntryNode(doc, {
+      app.ui.pendingEl.appendChild(buildEntryNode(doc, {
         key,
         time: line.time,
         name: line.name,
@@ -1103,18 +1103,18 @@
     if (appended && nearBottom) scrollLogToBottom();
   }
   function syncIdle() {
-    if (!app2.ui || !app2.ui.idleEl) return;
-    let empty = !app2.log.length && !app2.ui.pendingEl.childElementCount;
-    app2.ui.idleEl.style.display = empty ? "flex" : "none";
+    if (!app.ui || !app.ui.idleEl) return;
+    let empty = !app.log.length && !app.ui.pendingEl.childElementCount;
+    app.ui.idleEl.style.display = empty ? "flex" : "none";
     if (!empty) return;
-    let text = app2.store ? "Waiting for captions \u2014 click <strong>Show Captions</strong> in Zoom if needed" : "Connecting to Zoom\u2026";
+    let text = app.store ? "Waiting for captions \u2014 click <strong>Show Captions</strong> in Zoom if needed" : "Connecting to Zoom\u2026";
     let html = '<div class="__zt-dot __zt-dot--waiting"></div>' + text;
-    if (app2.ui.idleEl.innerHTML !== html) app2.ui.idleEl.innerHTML = html;
+    if (app.ui.idleEl.innerHTML !== html) app.ui.idleEl.innerHTML = html;
   }
   function applyLogFilter() {
-    if (!app2.ui || !app2.ui.settledEl) return;
-    let q = app2.searchQuery.toLowerCase().trim();
-    let rows = app2.ui.settledEl.querySelectorAll(".__zt-entry");
+    if (!app.ui || !app.ui.settledEl) return;
+    let q = app.searchQuery.toLowerCase().trim();
+    let rows = app.ui.settledEl.querySelectorAll(".__zt-entry");
     let lastVisibleName = null;
     for (let i = 0; i < rows.length; i++) {
       let row = rows[i];
@@ -1140,67 +1140,67 @@
     }
   }
   function renderStats() {
-    if (!app2.ui || !app2.ui.statsRowsEl) return;
-    let doc = app2.ui.statsRowsEl.ownerDocument;
-    let names = Object.keys(app2.speakerStats);
+    if (!app.ui || !app.ui.statsRowsEl) return;
+    let doc = app.ui.statsRowsEl.ownerDocument;
+    let names = Object.keys(app.speakerStats);
     let total = 0;
     let max = 0;
     names.forEach(function(n) {
-      total += app2.speakerStats[n];
-      if (app2.speakerStats[n] > max) max = app2.speakerStats[n];
+      total += app.speakerStats[n];
+      if (app.speakerStats[n] > max) max = app.speakerStats[n];
     });
     names.sort(function(a, b) {
-      return app2.speakerStats[b] - app2.speakerStats[a];
+      return app.speakerStats[b] - app.speakerStats[a];
     });
-    app2.ui.statsMetaEl.textContent = app2.log.length + (app2.log.length === 1 ? " line" : " lines") + " \xB7 " + elapsedText2();
-    app2.ui.statsRowsEl.innerHTML = "";
+    app.ui.statsMetaEl.textContent = app.log.length + (app.log.length === 1 ? " line" : " lines") + " \xB7 " + elapsedText();
+    app.ui.statsRowsEl.innerHTML = "";
     if (!names.length) {
-      app2.ui.statsRowsEl.innerHTML = '<div class="__zt-idle">No speakers yet</div>';
+      app.ui.statsRowsEl.innerHTML = '<div class="__zt-idle">No speakers yet</div>';
       return;
     }
     names.forEach(function(n) {
-      let count = app2.speakerStats[n];
+      let count = app.speakerStats[n];
       let color = getSpeakerColor(n);
       let row = doc.createElement("div");
       row.className = "__zt-stat-row";
       row.innerHTML = '<div class="__zt-stat-swatch" style="background:' + color + '"></div><div class="__zt-stat-name">' + escapeHtml(n) + '</div><div class="__zt-stat-bar-wrap"><div class="__zt-stat-bar" style="width:' + Math.round(count / max * 100) + "%;background:" + color + '"></div></div><div class="__zt-stat-pct">' + Math.round(count / total * 100) + '%</div><div class="__zt-stat-lines">' + count + (count === 1 ? " line" : " lines") + "</div>";
-      app2.ui.statsRowsEl.appendChild(row);
+      app.ui.statsRowsEl.appendChild(row);
     });
   }
   function startElapsed() {
-    if (app2.elapsedStart == null) app2.elapsedStart = Date.now();
-    if (!app2.elapsedTimer) app2.elapsedTimer = setInterval(updateTimerDisplay, 1e3);
+    if (app.elapsedStart == null) app.elapsedStart = Date.now();
+    if (!app.elapsedTimer) app.elapsedTimer = setInterval(updateTimerDisplay, 1e3);
   }
-  function elapsedText2() {
-    if (app2.elapsedStart == null) return "0:00";
-    let total = Math.max(0, Math.floor((Date.now() - app2.elapsedStart) / 1e3));
+  function elapsedText() {
+    if (app.elapsedStart == null) return "0:00";
+    let total = Math.max(0, Math.floor((Date.now() - app.elapsedStart) / 1e3));
     return Math.floor(total / 60) + ":" + String(total % 60).padStart(2, "0");
   }
   function updateTimerDisplay() {
-    if (!app2.ui) return;
-    if (!app2.paused && app2.ui.timerEl) app2.ui.timerEl.textContent = elapsedText2();
-    if (app2.collapsed) updatePill();
+    if (!app.ui) return;
+    if (!app.paused && app.ui.timerEl) app.ui.timerEl.textContent = elapsedText();
+    if (app.collapsed) updatePill();
   }
 
   // src/ingest.js
   function persistLog() {
-    app2.log = dedupLog(app2.log);
+    app.log = dedupLog(app.log);
     syncSeenFromLog();
     rebuildSpeakerStats();
-    if (app2.log.length) {
-      localStorage.setItem(keys.storageKey, JSON.stringify(app2.log));
+    if (app.log.length) {
+      localStorage.setItem(keys.storageKey, JSON.stringify(app.log));
     }
     updateUI();
   }
   function ingestLines(lines) {
-    if (app2.paused) return 0;
+    if (app.paused) return 0;
     let added = 0;
     lines.forEach(function(line) {
       let key = makeKey(line.time, line.name, line.msg);
-      if (app2.seen.has(key)) return;
-      app2.seen.add(key);
+      if (app.seen.has(key)) return;
+      app.seen.add(key);
       added++;
-      app2.log.push({
+      app.log.push({
         key,
         time: line.time,
         name: line.name,
@@ -1212,14 +1212,14 @@
     return added;
   }
   function ingestChatLines(lines) {
-    if (app2.paused) return 0;
+    if (app.paused) return 0;
     let added = 0;
     lines.forEach(function(line) {
       let key = "chat|" + line.chatId;
-      if (app2.seen.has(key)) return;
-      app2.seen.add(key);
+      if (app.seen.has(key)) return;
+      app.seen.add(key);
       added++;
-      app2.log.push({
+      app.log.push({
         key,
         time: line.time,
         name: line.name,
@@ -1237,14 +1237,14 @@
   function trackChatMessages(reduxState) {
     ingestChatLines(extractChatLines(reduxState));
   }
-  app2.prevSharers = null;
+  app.prevSharers = null;
   function addMarker(text, src) {
     let time = formatTime(Date.now());
     let msg = "\u2014 " + text + " \u2014";
     let key = makeKey(time, null, msg);
-    if (app2.seen.has(key)) return;
-    app2.seen.add(key);
-    app2.log.push({
+    if (app.seen.has(key)) return;
+    app.seen.add(key);
+    app.log.push({
       key,
       time,
       name: null,
@@ -1255,7 +1255,7 @@
     persistLog();
   }
   function addShareMarker(text) {
-    if (app2.paused) return;
+    if (app.paused) return;
     addMarker(text, "share-event");
   }
   function trackShareEvents(reduxState) {
@@ -1265,32 +1265,32 @@
     } catch (e) {
       return;
     }
-    if (app2.prevSharers === null) {
-      app2.prevSharers = cur;
+    if (app.prevSharers === null) {
+      app.prevSharers = cur;
       return;
     }
     Object.keys(cur).forEach(function(id) {
-      if (!(id in app2.prevSharers)) {
+      if (!(id in app.prevSharers)) {
         addShareMarker(cur[id] + " started sharing their screen");
       }
     });
-    Object.keys(app2.prevSharers).forEach(function(id) {
+    Object.keys(app.prevSharers).forEach(function(id) {
       if (!(id in cur)) {
-        addShareMarker((app2.prevSharers[id] || "Someone") + " stopped sharing");
+        addShareMarker((app.prevSharers[id] || "Someone") + " stopped sharing");
       }
     });
-    app2.prevSharers = cur;
+    app.prevSharers = cur;
   }
   function pollStore() {
-    app2.pollCount++;
-    app2.wcWin = getWebclientWindow();
-    if (!app2.store) {
-      app2.store = findReduxStore(app2.wcWin.document);
-      if (!app2.store && isParentShell() && app2.pendingInjectSource && app2.injectRetries < MAX_INJECT_RETRIES) {
-        app2.injectRetries++;
-        tryInjectIntoIframe(app2.pendingInjectSource);
+    app.pollCount++;
+    app.wcWin = getWebclientWindow();
+    if (!app.store) {
+      app.store = findReduxStore(app.wcWin.document);
+      if (!app.store && isParentShell() && app.pendingInjectSource && app.injectRetries < MAX_INJECT_RETRIES) {
+        app.injectRetries++;
+        tryInjectIntoIframe(app.pendingInjectSource);
       }
-      if (!app2.store) {
+      if (!app.store) {
         updateUI();
         return;
       }
@@ -1299,33 +1299,33 @@
     }
     let reduxState;
     try {
-      reduxState = app2.store.getState();
+      reduxState = app.store.getState();
     } catch (e) {
-      app2.store = null;
+      app.store = null;
       updateUI();
       return;
     }
     trackShareEvents(reduxState);
     trackChatMessages(reduxState);
-    if (!app2.paused) {
+    if (!app.paused) {
       let lines = extractLines(reduxState);
       let snapshot = JSON.stringify(lines.map(function(l) {
         return [l.time, l.name, l.msg, l.finished];
       }));
-      if (snapshot !== app2.lastSnapshot) {
-        app2.lastSnapshot = snapshot;
-        app2.pendingLines = lines;
-        if (app2.settleTimer) clearTimeout(app2.settleTimer);
+      if (snapshot !== app.lastSnapshot) {
+        app.lastSnapshot = snapshot;
+        app.pendingLines = lines;
+        if (app.settleTimer) clearTimeout(app.settleTimer);
         updateUI();
-        app2.settleTimer = setTimeout(function() {
-          app2.settleTimer = null;
+        app.settleTimer = setTimeout(function() {
+          app.settleTimer = null;
           ingestLines(lines);
-          app2.pendingLines = null;
+          app.pendingLines = null;
           persistLog();
         }, SETTLE_MS);
       }
     }
-    if (app2.store) updateUI();
+    if (app.store) updateUI();
   }
 
   // src/styles.js
@@ -1335,8 +1335,8 @@
     style.id = "__zt-caption-styles";
     style.textContent = `
     :root {
-      --zt-panel-width: ${app2.panelWidth}px;
-      --zt-log-height: ${app2.logHeight}px;
+      --zt-panel-width: ${app.panelWidth}px;
+      --zt-log-height: ${app.logHeight}px;
 
       --zt-widget-bg:           rgba(255,255,255,0.97);
       --zt-widget-border:       rgba(0,0,0,0.09);
@@ -2148,15 +2148,15 @@
 
   // src/export.js
   function flushPending() {
-    if (app2.settleTimer) {
-      clearTimeout(app2.settleTimer);
-      app2.settleTimer = null;
+    if (app.settleTimer) {
+      clearTimeout(app.settleTimer);
+      app.settleTimer = null;
     }
-    app2.pendingLines = null;
+    app.pendingLines = null;
     pollStore();
-    if (app2.store) {
+    if (app.store) {
       try {
-        let reduxState = app2.store.getState();
+        let reduxState = app.store.getState();
         ingestLines(extractLines(reduxState));
         ingestChatLines(extractChatLines(reduxState));
       } catch (e) {
@@ -2165,17 +2165,17 @@
     persistLog();
   }
   function talkTimeSummary() {
-    let names = Object.keys(app2.speakerStats);
+    let names = Object.keys(app.speakerStats);
     if (!names.length) return [];
     let total = 0;
     names.forEach(function(n) {
-      total += app2.speakerStats[n];
+      total += app.speakerStats[n];
     });
     names.sort(function(a, b) {
-      return app2.speakerStats[b] - app2.speakerStats[a];
+      return app.speakerStats[b] - app.speakerStats[a];
     });
     return names.map(function(n) {
-      let count = app2.speakerStats[n];
+      let count = app.speakerStats[n];
       return {
         speaker: n,
         lines: count,
@@ -2185,8 +2185,8 @@
   }
   function formatOutput() {
     let lastSpeaker = null;
-    let body = app2.log.map(function(e) {
-      let bookmarkLabel = app2.bookmarkByKey.get(e.key);
+    let body = app.log.map(function(e) {
+      let bookmarkLabel = app.bookmarkByKey.get(e.key);
       let parts = [];
       if (bookmarkLabel) parts.push("", "\u2605 BOOKMARK: " + bookmarkLabel);
       if (e.marker) {
@@ -2204,8 +2204,8 @@
       parts.push(line);
       return parts.join("\n");
     }).join("\n").trim();
-    if (app2.bookmarks.length) {
-      body += "\n\n\u2014 Bookmarks \u2014\n" + app2.bookmarks.map(function(b) {
+    if (app.bookmarks.length) {
+      body += "\n\n\u2014 Bookmarks \u2014\n" + app.bookmarks.map(function(b) {
         return "\u2605 " + b.label + " \u2014 " + (b.time || "\u2014") + " \xB7 " + (b.speaker || "\u2014") + " \xB7 " + (b.preview || "");
       }).join("\n");
     }
@@ -2218,7 +2218,7 @@
     return body;
   }
   function currentSessionName() {
-    return app2.sessionName || localStorage.getItem(keys.sessionKey) || "";
+    return app.sessionName || localStorage.getItem(keys.sessionKey) || "";
   }
   function autoDownloadAlreadyHandled() {
     return localStorage.getItem(keys.autoDownloadKey) === keys.meetingId;
@@ -2246,7 +2246,7 @@
   }
   function downloadJson() {
     flushPending();
-    if (!app2.log.length) {
+    if (!app.log.length) {
       alert("No captions captured yet. Try __ztCaption.probe() in console.");
       return;
     }
@@ -2254,7 +2254,7 @@
       session: currentSessionName() || null,
       exportedAt: (/* @__PURE__ */ new Date()).toISOString(),
       talkTime: talkTimeSummary(),
-      bookmarks: app2.bookmarks.map(function(b) {
+      bookmarks: app.bookmarks.map(function(b) {
         return {
           id: b.id,
           label: b.label,
@@ -2264,14 +2264,14 @@
           preview: b.preview || null
         };
       }),
-      entries: app2.log.map(function(e) {
+      entries: app.log.map(function(e) {
         return {
           time: e.time || null,
           speaker: e.name || null,
           text: e.msg,
           marker: !!e.marker,
           chat: !!e.chat,
-          bookmark: app2.bookmarkByKey.get(e.key) || null
+          bookmark: app.bookmarkByKey.get(e.key) || null
         };
       })
     };
@@ -2326,107 +2326,107 @@
     return null;
   }
   function hasTranscriptToSave() {
-    if (app2.log.length) return true;
-    return !!(app2.pendingLines && app2.pendingLines.length);
+    if (app.log.length) return true;
+    return !!(app.pendingLines && app.pendingLines.length);
   }
   function teardownAutoDownloadHooks() {
-    if (app2.autoDownloadDoc && app2.meetingExitClickHandler) {
-      app2.autoDownloadDoc.removeEventListener("click", app2.meetingExitClickHandler, true);
+    if (app.autoDownloadDoc && app.meetingExitClickHandler) {
+      app.autoDownloadDoc.removeEventListener("click", app.meetingExitClickHandler, true);
     }
-    if (app2.hostEndedObserver) app2.hostEndedObserver.disconnect();
-    if (app2.hostEndedTimer) clearTimeout(app2.hostEndedTimer);
-    if (app2.autoDownloadWin) {
-      if (app2.tabCloseBeforeUnloadHandler) {
-        app2.autoDownloadWin.removeEventListener("beforeunload", app2.tabCloseBeforeUnloadHandler);
+    if (app.hostEndedObserver) app.hostEndedObserver.disconnect();
+    if (app.hostEndedTimer) clearTimeout(app.hostEndedTimer);
+    if (app.autoDownloadWin) {
+      if (app.tabCloseBeforeUnloadHandler) {
+        app.autoDownloadWin.removeEventListener("beforeunload", app.tabCloseBeforeUnloadHandler);
       }
-      if (app2.tabClosePageHideHandler) {
-        app2.autoDownloadWin.removeEventListener("pagehide", app2.tabClosePageHideHandler);
+      if (app.tabClosePageHideHandler) {
+        app.autoDownloadWin.removeEventListener("pagehide", app.tabClosePageHideHandler);
       }
     }
-    app2.autoDownloadDoc = null;
-    app2.autoDownloadWin = null;
-    app2.meetingExitClickHandler = null;
-    app2.tabCloseBeforeUnloadHandler = null;
-    app2.tabClosePageHideHandler = null;
-    app2.hostEndedObserver = null;
-    app2.hostEndedTimer = null;
-    app2.hostEndedTriggered = false;
+    app.autoDownloadDoc = null;
+    app.autoDownloadWin = null;
+    app.meetingExitClickHandler = null;
+    app.tabCloseBeforeUnloadHandler = null;
+    app.tabClosePageHideHandler = null;
+    app.hostEndedObserver = null;
+    app.hostEndedTimer = null;
+    app.hostEndedTriggered = false;
   }
   function setupAutoDownloadHooks(doc) {
-    if (!doc || !doc.body || app2.autoDownloadDoc === doc) return;
+    if (!doc || !doc.body || app.autoDownloadDoc === doc) return;
     teardownAutoDownloadHooks();
-    app2.meetingExitClickHandler = function(e) {
+    app.meetingExitClickHandler = function(e) {
       let hit = findMeetingExitButton(e.target);
       if (hit) downloadCaptions({ auto: true, reason: hit.reason });
     };
-    doc.addEventListener("click", app2.meetingExitClickHandler, true);
-    app2.hostEndedObserver = new MutationObserver(function() {
-      if (app2.hostEndedTriggered || autoDownloadAlreadyHandled()) return;
+    doc.addEventListener("click", app.meetingExitClickHandler, true);
+    app.hostEndedObserver = new MutationObserver(function() {
+      if (app.hostEndedTriggered || autoDownloadAlreadyHandled()) return;
       let nodes = doc.querySelectorAll(
         '.zm-modal-body-title, .zm-modal-body-content, .confirm-modal-content, [role="dialog"]'
       );
       for (let i = 0; i < nodes.length; i++) {
         let t = nodes[i].textContent || "";
         if (/meeting has been ended by the host/i.test(t) || /ended by host/i.test(t)) {
-          if (app2.hostEndedTimer) clearTimeout(app2.hostEndedTimer);
-          app2.hostEndedTimer = setTimeout(function() {
-            app2.hostEndedTimer = null;
-            if (app2.hostEndedTriggered || autoDownloadAlreadyHandled()) return;
-            app2.hostEndedTriggered = true;
+          if (app.hostEndedTimer) clearTimeout(app.hostEndedTimer);
+          app.hostEndedTimer = setTimeout(function() {
+            app.hostEndedTimer = null;
+            if (app.hostEndedTriggered || autoDownloadAlreadyHandled()) return;
+            app.hostEndedTriggered = true;
             downloadCaptions({ auto: true, reason: "host-ended" });
           }, 400);
           return;
         }
       }
     });
-    app2.hostEndedObserver.observe(doc.body, { childList: true, subtree: true });
+    app.hostEndedObserver.observe(doc.body, { childList: true, subtree: true });
     let win = doc.defaultView;
     if (win) {
-      app2.tabCloseBeforeUnloadHandler = function(e) {
+      app.tabCloseBeforeUnloadHandler = function(e) {
         if (autoDownloadAlreadyHandled() || !hasTranscriptToSave()) return;
         e.preventDefault();
         e.returnValue = "";
       };
-      app2.tabClosePageHideHandler = function(e) {
+      app.tabClosePageHideHandler = function(e) {
         if (e.persisted || autoDownloadAlreadyHandled()) return;
         flushPending();
         if (!hasTranscriptToSave()) return;
         downloadCaptions({ auto: true, reason: "tab-close" });
       };
-      win.addEventListener("beforeunload", app2.tabCloseBeforeUnloadHandler);
-      win.addEventListener("pagehide", app2.tabClosePageHideHandler);
-      app2.autoDownloadWin = win;
+      win.addEventListener("beforeunload", app.tabCloseBeforeUnloadHandler);
+      win.addEventListener("pagehide", app.tabClosePageHideHandler);
+      app.autoDownloadWin = win;
     }
-    app2.autoDownloadDoc = doc;
+    app.autoDownloadDoc = doc;
   }
   function resetLog() {
-    if (app2.settleTimer) {
-      clearTimeout(app2.settleTimer);
-      app2.settleTimer = null;
+    if (app.settleTimer) {
+      clearTimeout(app.settleTimer);
+      app.settleTimer = null;
     }
-    app2.pendingLines = null;
-    app2.log = [];
-    app2.seen = /* @__PURE__ */ new Set();
-    app2.pauseSkipped = /* @__PURE__ */ new Set();
-    app2.lastSnapshot = "";
-    app2.renderedLogCount = 0;
-    app2.lastRenderedSpeaker = null;
-    app2.speakerColorMap = {};
-    app2.speakerColorIdx = 0;
-    app2.speakerStats = {};
-    app2.prevSharers = null;
-    app2.elapsedStart = null;
-    if (app2.elapsedTimer) {
-      clearInterval(app2.elapsedTimer);
-      app2.elapsedTimer = null;
+    app.pendingLines = null;
+    app.log = [];
+    app.seen = /* @__PURE__ */ new Set();
+    app.pauseSkipped = /* @__PURE__ */ new Set();
+    app.lastSnapshot = "";
+    app.renderedLogCount = 0;
+    app.lastRenderedSpeaker = null;
+    app.speakerColorMap = {};
+    app.speakerColorIdx = 0;
+    app.speakerStats = {};
+    app.prevSharers = null;
+    app.elapsedStart = null;
+    if (app.elapsedTimer) {
+      clearInterval(app.elapsedTimer);
+      app.elapsedTimer = null;
     }
     localStorage.removeItem(keys.storageKey);
     localStorage.removeItem(keys.bookmarksKey);
-    app2.bookmarks = [];
-    app2.bookmarkByKey = /* @__PURE__ */ new Map();
-    app2.bookmarkMode = false;
-    if (app2.ui && app2.ui.settledEl) app2.ui.settledEl.innerHTML = "";
-    if (app2.ui && app2.ui.pendingEl) app2.ui.pendingEl.innerHTML = "";
+    app.bookmarks = [];
+    app.bookmarkByKey = /* @__PURE__ */ new Map();
+    app.bookmarkMode = false;
+    if (app.ui && app.ui.settledEl) app.ui.settledEl.innerHTML = "";
+    if (app.ui && app.ui.pendingEl) app.ui.pendingEl.innerHTML = "";
     updateUI();
   }
 
@@ -2439,7 +2439,7 @@
       return;
     }
     navigator.clipboard.writeText(text).then(function() {
-      let btn = app2.ui && app2.ui.copyBtn;
+      let btn = app.ui && app.ui.copyBtn;
       if (!btn) return;
       btn.textContent = "\u2713 Copied";
       setTimeout(function() {
@@ -2452,17 +2452,17 @@
   }
   function shutdown() {
     flushPending();
-    if (app2.pollTimer) clearInterval(app2.pollTimer);
-    app2.pollTimer = null;
-    if (app2.settleTimer) clearTimeout(app2.settleTimer);
-    app2.settleTimer = null;
-    if (app2.captionsEnableTimer) clearInterval(app2.captionsEnableTimer);
-    app2.captionsEnableTimer = null;
-    if (app2.elapsedTimer) clearInterval(app2.elapsedTimer);
-    app2.elapsedTimer = null;
-    if (app2.ui && app2.ui.boxObserver) app2.ui.boxObserver.disconnect();
-    if (app2.captionDomObserver) app2.captionDomObserver.disconnect();
-    app2.captionDomObserver = null;
+    if (app.pollTimer) clearInterval(app.pollTimer);
+    app.pollTimer = null;
+    if (app.settleTimer) clearTimeout(app.settleTimer);
+    app.settleTimer = null;
+    if (app.captionsEnableTimer) clearInterval(app.captionsEnableTimer);
+    app.captionsEnableTimer = null;
+    if (app.elapsedTimer) clearInterval(app.elapsedTimer);
+    app.elapsedTimer = null;
+    if (app.ui && app.ui.boxObserver) app.ui.boxObserver.disconnect();
+    if (app.captionDomObserver) app.captionDomObserver.disconnect();
+    app.captionDomObserver = null;
     teardownAutoDownloadHooks();
     let doc = activeDoc();
     ["__zt-caption-mount", "__zt-pill", "__zt-caption-dock", "__zt-caption-styles"].forEach(function(id) {
@@ -2471,26 +2471,26 @@
     });
     doc.documentElement.style.removeProperty("--zt-panel-width");
     doc.documentElement.style.removeProperty("--zt-log-height");
-    app2.ui = null;
-    app2.log = [];
-    app2.seen = /* @__PURE__ */ new Set();
-    app2.pauseSkipped = /* @__PURE__ */ new Set();
-    app2.lastSnapshot = "";
-    app2.renderedLogCount = 0;
-    app2.lastRenderedSpeaker = null;
-    app2.speakerColorMap = {};
-    app2.speakerColorIdx = 0;
-    app2.speakerStats = {};
-    app2.prevSharers = null;
-    app2.elapsedStart = null;
-    app2.pendingLines = null;
+    app.ui = null;
+    app.log = [];
+    app.seen = /* @__PURE__ */ new Set();
+    app.pauseSkipped = /* @__PURE__ */ new Set();
+    app.lastSnapshot = "";
+    app.renderedLogCount = 0;
+    app.lastRenderedSpeaker = null;
+    app.speakerColorMap = {};
+    app.speakerColorIdx = 0;
+    app.speakerStats = {};
+    app.prevSharers = null;
+    app.elapsedStart = null;
+    app.pendingLines = null;
     localStorage.removeItem(keys.storageKey);
     localStorage.removeItem(keys.meetingKey);
     localStorage.removeItem(keys.autoDownloadKey);
     localStorage.removeItem(keys.bookmarksKey);
-    app2.bookmarks = [];
-    app2.bookmarkByKey = /* @__PURE__ */ new Map();
-    app2.bookmarkMode = false;
+    app.bookmarks = [];
+    app.bookmarkByKey = /* @__PURE__ */ new Map();
+    app.bookmarkMode = false;
     window.__ztCaptionLoaded = false;
     delete window.__ztCaption;
     try {
@@ -2502,75 +2502,88 @@
     }
     console.info("[ZT Captions] Stopped \u2014 click your bookmark to start a fresh transcript.");
   }
+  function syncPrefsFromStorage() {
+    app.darkMode = localStorage.getItem(keys.darkKey) === "1";
+    app.collapsed = localStorage.getItem(keys.collapsedKey) === "1";
+  }
+  function mountIsHealthy(doc) {
+    let mount = doc.getElementById("__zt-caption-mount");
+    let pill = doc.getElementById("__zt-pill");
+    if (!mount || !pill || !mount.isConnected || !pill.isConnected) return false;
+    let box = findCaptionBox(doc);
+    if (box) return mount.parentElement === box && pill.parentElement === box;
+    let dock = doc.getElementById("__zt-caption-dock");
+    return !!(dock && mount.parentElement === dock && pill.parentElement === dock);
+  }
   function ensureUiRefs(doc) {
     let mount = doc.getElementById("__zt-caption-mount");
     let pill = doc.getElementById("__zt-pill");
     if (!mount || !pill) return false;
     let box = findCaptionBox(doc);
     let dock = doc.getElementById("__zt-caption-dock");
-    app2.ui = app2.ui || {};
-    app2.ui.mount = mount;
-    app2.ui.pill = pill;
-    app2.ui.dock = dock;
-    app2.ui.dot = mount.querySelector("#__zt-dot");
-    app2.ui.timerEl = mount.querySelector("#__zt-timer");
-    app2.ui.modeBtn = mount.querySelector("#__zt-mode-btn");
-    app2.ui.bookmarkBtn = mount.querySelector("#__zt-bookmark-btn");
-    app2.ui.bookmarkDialog = mount.querySelector("#__zt-bookmark-dialog");
-    app2.ui.bookmarkInput = mount.querySelector("#__zt-bookmark-input");
-    app2.ui.bookmarkDialogTitle = mount.querySelector("#__zt-bookmark-dialog-title");
-    app2.ui.bookmarkRemoveBtn = mount.querySelector("#__zt-bookmark-remove");
-    app2.ui.pausedBanner = mount.querySelector("#__zt-paused-banner");
-    app2.ui.logEntriesEl = mount.querySelector("#__zt-log-entries");
-    app2.ui.settledEl = mount.querySelector("#__zt-settled");
-    app2.ui.pendingEl = mount.querySelector("#__zt-pending");
-    app2.ui.idleEl = mount.querySelector("#__zt-idle");
-    app2.ui.statsRowsEl = mount.querySelector("#__zt-stats-rows");
-    app2.ui.statsMetaEl = mount.querySelector("#__zt-stats-meta");
-    app2.ui.pauseBtn = mount.querySelector("#__zt-pause-btn");
-    app2.ui.copyBtn = mount.querySelector("#__zt-copy-btn");
-    app2.ui.searchInput = mount.querySelector("#__zt-search-input");
-    app2.ui.pillDot = pill.querySelector("#__zt-pill-dot");
-    app2.ui.pillChip = pill.querySelector("#__zt-pill-chip");
-    app2.ui.pillChipDot = pill.querySelector("#__zt-pill-chip-dot");
-    app2.ui.pillChipName = pill.querySelector("#__zt-pill-chip-name");
-    app2.ui.pillSpeaking = pill.querySelector("#__zt-pill-speaking");
-    app2.ui.pillMeta = pill.querySelector("#__zt-pill-meta");
-    app2.ui.usingBox = !!box;
+    app.ui = app.ui || {};
+    app.ui.mount = mount;
+    app.ui.pill = pill;
+    app.ui.dock = dock;
+    app.ui.dot = mount.querySelector("#__zt-dot");
+    app.ui.timerEl = mount.querySelector("#__zt-timer");
+    app.ui.modeBtn = mount.querySelector("#__zt-mode-btn");
+    app.ui.bookmarkBtn = mount.querySelector("#__zt-bookmark-btn");
+    app.ui.bookmarkDialog = mount.querySelector("#__zt-bookmark-dialog");
+    app.ui.bookmarkInput = mount.querySelector("#__zt-bookmark-input");
+    app.ui.bookmarkDialogTitle = mount.querySelector("#__zt-bookmark-dialog-title");
+    app.ui.bookmarkRemoveBtn = mount.querySelector("#__zt-bookmark-remove");
+    app.ui.pausedBanner = mount.querySelector("#__zt-paused-banner");
+    app.ui.logEntriesEl = mount.querySelector("#__zt-log-entries");
+    app.ui.settledEl = mount.querySelector("#__zt-settled");
+    app.ui.pendingEl = mount.querySelector("#__zt-pending");
+    app.ui.idleEl = mount.querySelector("#__zt-idle");
+    app.ui.statsRowsEl = mount.querySelector("#__zt-stats-rows");
+    app.ui.statsMetaEl = mount.querySelector("#__zt-stats-meta");
+    app.ui.pauseBtn = mount.querySelector("#__zt-pause-btn");
+    app.ui.copyBtn = mount.querySelector("#__zt-copy-btn");
+    app.ui.searchInput = mount.querySelector("#__zt-search-input");
+    app.ui.pillDot = pill.querySelector("#__zt-pill-dot");
+    app.ui.pillChip = pill.querySelector("#__zt-pill-chip");
+    app.ui.pillChipDot = pill.querySelector("#__zt-pill-chip-dot");
+    app.ui.pillChipName = pill.querySelector("#__zt-pill-chip-name");
+    app.ui.pillSpeaking = pill.querySelector("#__zt-pill-speaking");
+    app.ui.pillMeta = pill.querySelector("#__zt-pill-meta");
+    app.ui.usingBox = !!box;
     ensureBookmarkWiring(mount, doc);
     return true;
   }
   function wireMountEvents(mount, doc) {
     mount.querySelectorAll(".__zt-tab").forEach(function(t) {
-      t.classList.toggle("active", t.getAttribute("data-tab") === app2.activeTab);
+      t.classList.toggle("active", t.getAttribute("data-tab") === app.activeTab);
       t.onclick = function() {
         switchTab(t.getAttribute("data-tab"));
       };
     });
     mount.querySelectorAll(".__zt-tab-panel").forEach(function(p) {
-      p.style.display = p.getAttribute("data-panel") === app2.activeTab ? "" : "none";
+      p.style.display = p.getAttribute("data-panel") === app.activeTab ? "" : "none";
     });
     let nameEl = mount.querySelector("#__zt-session-name");
     function syncNameDisplay() {
-      nameEl.textContent = app2.sessionName || "Name this meeting\u2026";
-      nameEl.classList.toggle("__zt-session-name--empty", !app2.sessionName);
+      nameEl.textContent = app.sessionName || "Name this meeting\u2026";
+      nameEl.classList.toggle("__zt-session-name--empty", !app.sessionName);
     }
     syncNameDisplay();
     nameEl.onclick = function() {
       let win = doc.defaultView || window;
-      let v = win.prompt("Name this meeting:", app2.sessionName);
+      let v = win.prompt("Name this meeting:", app.sessionName);
       if (v === null) return;
-      app2.sessionName = v.trim();
-      localStorage.setItem(keys.sessionKey, app2.sessionName);
+      app.sessionName = v.trim();
+      localStorage.setItem(keys.sessionKey, app.sessionName);
       syncNameDisplay();
     };
     let searchInput = mount.querySelector("#__zt-search-input");
-    searchInput.value = app2.searchQuery;
+    searchInput.value = app.searchQuery;
     searchInput.addEventListener("input", function() {
-      app2.searchQuery = searchInput.value;
+      app.searchQuery = searchInput.value;
       applyLogFilter();
     });
-    mount.querySelector("#__zt-mode-btn").textContent = app2.darkMode ? "\u{1F319}" : "\u2600\uFE0E";
+    mount.querySelector("#__zt-mode-btn").textContent = app.darkMode ? "\u{1F319}" : "\u2600\uFE0E";
     mount.querySelector("#__zt-mode-btn").onclick = toggleMode;
     mount.querySelector("#__zt-collapse-btn").onclick = function() {
       setCollapsed(true);
@@ -2618,16 +2631,16 @@
         e.preventDefault();
         e.stopPropagation();
         let start = horiz ? e.clientX : e.clientY;
-        let startVal = horiz ? app2.panelWidth : app2.logHeight;
+        let startVal = horiz ? app.panelWidth : app.logHeight;
         handle.classList.add("active");
         function onMove(ev) {
           ev.preventDefault();
           let delta = sign * ((horiz ? ev.clientX : ev.clientY) - start);
           if (horiz) {
-            app2.panelWidth = Math.max(MIN_PANEL_WIDTH, Math.min(MAX_PANEL_WIDTH, startVal + delta));
+            app.panelWidth = Math.max(MIN_PANEL_WIDTH, Math.min(MAX_PANEL_WIDTH, startVal + delta));
             applyPanelWidth(doc);
           } else {
-            app2.logHeight = Math.max(MIN_LOG_HEIGHT, Math.min(MAX_LOG_HEIGHT, startVal + delta));
+            app.logHeight = Math.max(MIN_LOG_HEIGHT, Math.min(MAX_LOG_HEIGHT, startVal + delta));
             applyLogHeight(doc);
           }
         }
@@ -2635,8 +2648,8 @@
           doc.removeEventListener("mousemove", onMove, true);
           doc.removeEventListener("mouseup", onUp, true);
           handle.classList.remove("active");
-          if (horiz) localStorage.setItem(keys.widthKey, String(app2.panelWidth));
-          else localStorage.setItem(keys.heightKey, String(app2.logHeight));
+          if (horiz) localStorage.setItem(keys.widthKey, String(app.panelWidth));
+          else localStorage.setItem(keys.heightKey, String(app.logHeight));
         }
         doc.addEventListener("mousemove", onMove, true);
         doc.addEventListener("mouseup", onUp, true);
@@ -2660,8 +2673,8 @@
     }
     mount = doc.createElement("div");
     mount.id = "__zt-caption-mount";
-    mount.className = "__zt-caption-mount" + (app2.darkMode ? " __zt-dark" : "");
-    if (app2.collapsed) mount.style.display = "none";
+    mount.className = "__zt-caption-mount" + (app.darkMode ? " __zt-dark" : "");
+    if (app.collapsed) mount.style.display = "none";
     mount.innerHTML = [
       '<div class="__zt-header">',
       '<div id="__zt-dot" class="__zt-dot __zt-dot--waiting"></div>',
@@ -2674,14 +2687,14 @@
       '<button id="__zt-collapse-btn" class="__zt-btn-icon" type="button" title="Collapse">\u2013</button>',
       "</div>",
       '<div id="__zt-paused-banner" class="__zt-paused-banner" style="display:none">',
-      "\u23F8 Recording app.paused \u2014 captions are not being saved",
+      "\u23F8 Recording paused \u2014 captions are not being saved",
       '<button id="__zt-banner-resume" class="__zt-btn" type="button">Resume</button>',
       "</div>",
       '<div class="__zt-tabs">',
-      '<div class="__zt-tab" data-tab="app.log">Log</div>',
+      '<div class="__zt-tab" data-tab="log">Log</div>',
       '<div class="__zt-tab" data-tab="stats">Stats</div>',
       "</div>",
-      '<div class="__zt-tab-panel" data-panel="app.log">',
+      '<div class="__zt-tab-panel" data-panel="log">',
       '<div class="__zt-search">',
       '<svg width="12" height="12" viewBox="0 0 16 16" fill="none"><circle cx="6.5" cy="6.5" r="5" stroke="currentColor" stroke-width="1.5"/><path d="M10.5 10.5L14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
       '<input id="__zt-search-input" placeholder="Search transcript\u2026" spellcheck="false">',
@@ -2745,8 +2758,8 @@
     }
     pill = doc.createElement("div");
     pill.id = "__zt-pill";
-    pill.className = "__zt-pill" + (app2.darkMode ? " __zt-dark" : "");
-    pill.style.display = app2.collapsed ? "flex" : "none";
+    pill.className = "__zt-pill" + (app.darkMode ? " __zt-dark" : "");
+    pill.style.display = app.collapsed ? "flex" : "none";
     pill.innerHTML = [
       '<div id="__zt-pill-dot" class="__zt-dot __zt-pill-dot __zt-dot--waiting"></div>',
       '<div class="__zt-pill-speakers">',
@@ -2790,11 +2803,11 @@
     lockPanelWidth(dock);
     return dock;
   }
-  app2.boxAttachTimer = null;
+  app.boxAttachTimer = null;
   function scheduleAttachIfNeeded(doc, box) {
-    if (app2.boxAttachTimer) clearTimeout(app2.boxAttachTimer);
-    app2.boxAttachTimer = setTimeout(function() {
-      app2.boxAttachTimer = null;
+    if (app.boxAttachTimer) clearTimeout(app.boxAttachTimer);
+    app.boxAttachTimer = setTimeout(function() {
+      app.boxAttachTimer = null;
       let mount = doc.getElementById("__zt-caption-mount");
       if (!mount || !mount.isConnected || mount.parentElement !== box) {
         attachMount(doc);
@@ -2802,25 +2815,25 @@
     }, 50);
   }
   function observeCaptionBox(doc, box) {
-    if (app2.ui && app2.ui.boxObserver && app2.ui.observedBox === box) return;
-    if (app2.ui && app2.ui.boxObserver) app2.ui.boxObserver.disconnect();
+    if (app.ui && app.ui.boxObserver && app.ui.observedBox === box) return;
+    if (app.ui && app.ui.boxObserver) app.ui.boxObserver.disconnect();
     let obs = new MutationObserver(function() {
       scheduleAttachIfNeeded(doc, box);
     });
     obs.observe(box, { childList: true });
-    if (!app2.ui) app2.ui = {};
-    app2.ui.boxObserver = obs;
-    app2.ui.observedBox = box;
+    if (!app.ui) app.ui = {};
+    app.ui.boxObserver = obs;
+    app.ui.observedBox = box;
   }
   function startCaptionDomWatch(doc) {
-    if (app2.captionDomObserver) return;
-    app2.captionDomObserver = new MutationObserver(function() {
+    if (app.captionDomObserver) return;
+    app.captionDomObserver = new MutationObserver(function() {
       let mount = doc.getElementById("__zt-caption-mount");
       if (!mount || !mount.isConnected) {
         watchCaptionPanel();
       }
     });
-    app2.captionDomObserver.observe(doc.body, { childList: true, subtree: true });
+    app.captionDomObserver.observe(doc.body, { childList: true, subtree: true });
   }
   function attachMount(doc) {
     let mount = doc.getElementById("__zt-caption-mount");
@@ -2838,16 +2851,16 @@
       dock.style.display = "none";
       usingBox = true;
       if (box.style.bottom) dock.style.bottom = box.style.bottom;
-      if (!app2.attachBoxLogged) {
-        app2.attachBoxLogged = true;
+      if (!app.attachBoxLogged) {
+        app.attachBoxLogged = true;
         console.info("[ZT Captions] Attached inside caption box.");
       }
     } else {
       if (mount.parentElement !== dock) dock.appendChild(mount);
       if (pill.parentElement !== dock) dock.appendChild(pill);
       dock.style.display = "block";
-      if (!app2.attachDockLogged) {
-        app2.attachDockLogged = true;
+      if (!app.attachDockLogged) {
+        app.attachDockLogged = true;
         console.info("[ZT Captions] Caption box hidden \u2014 keeping pinned recorder visible.");
       }
     }
@@ -2857,11 +2870,11 @@
     applyCollapsed();
     return true;
   }
-  app2.lastPanelWatchAt = 0;
+  app.lastPanelWatchAt = 0;
   function watchCaptionPanel() {
     let now = Date.now();
-    if (now - app2.lastPanelWatchAt < 250) return;
-    app2.lastPanelWatchAt = now;
+    if (now - app.lastPanelWatchAt < 250) return;
+    app.lastPanelWatchAt = now;
     let doc;
     try {
       doc = activeDoc();
@@ -2883,28 +2896,28 @@
 
   // src/controls.js
   function setPaused(p) {
-    if (app2.paused === p) return;
-    app2.paused = p;
-    addMarker(p ? "Recording app.paused" : "Recording resumed", "pause-event");
-    if (app2.settleTimer) {
-      clearTimeout(app2.settleTimer);
-      app2.settleTimer = null;
+    if (app.paused === p) return;
+    app.paused = p;
+    addMarker(p ? "Recording paused" : "Recording resumed", "pause-event");
+    if (app.settleTimer) {
+      clearTimeout(app.settleTimer);
+      app.settleTimer = null;
     }
-    app2.pendingLines = null;
+    app.pendingLines = null;
     if (!p) {
-      app2.lastSnapshot = "";
-      if (app2.store) {
+      app.lastSnapshot = "";
+      if (app.store) {
         try {
-          let pauseState = app2.store.getState();
+          let pauseState = app.store.getState();
           extractLines(pauseState).forEach(function(line) {
             let key = makeKey(line.time, line.name, line.msg);
-            app2.pauseSkipped.add(key);
-            app2.seen.add(key);
+            app.pauseSkipped.add(key);
+            app.seen.add(key);
           });
           extractChatLines(pauseState).forEach(function(line) {
             let key = "chat|" + line.chatId;
-            app2.pauseSkipped.add(key);
-            app2.seen.add(key);
+            app.pauseSkipped.add(key);
+            app.seen.add(key);
           });
         } catch (e) {
         }
@@ -2913,23 +2926,23 @@
     updateUI();
   }
   function togglePause() {
-    setPaused(!app2.paused);
+    setPaused(!app.paused);
   }
   function applyMode() {
     syncPrefsFromStorage();
-    if (!app2.ui) return;
-    [app2.ui.mount, app2.ui.pill, app2.ui.dock].forEach(function(el) {
-      if (el) el.classList.toggle("__zt-dark", app2.darkMode);
+    if (!app.ui) return;
+    [app.ui.mount, app.ui.pill, app.ui.dock].forEach(function(el) {
+      if (el) el.classList.toggle("__zt-dark", app.darkMode);
     });
-    if (app2.ui.modeBtn) app2.ui.modeBtn.textContent = app2.darkMode ? "\u{1F319}" : "\u2600\uFE0E";
+    if (app.ui.modeBtn) app.ui.modeBtn.textContent = app.darkMode ? "\u{1F319}" : "\u2600\uFE0E";
   }
   function toggleMode() {
-    app2.darkMode = !app2.darkMode;
-    localStorage.setItem(keys.darkKey, app2.darkMode ? "1" : "");
-    if (app2.ui && app2.ui.settledEl) {
-      app2.ui.settledEl.innerHTML = "";
-      app2.renderedLogCount = 0;
-      app2.lastRenderedSpeaker = null;
+    app.darkMode = !app.darkMode;
+    localStorage.setItem(keys.darkKey, app.darkMode ? "1" : "");
+    if (app.ui && app.ui.settledEl) {
+      app.ui.settledEl.innerHTML = "";
+      app.renderedLogCount = 0;
+      app.lastRenderedSpeaker = null;
     }
     applyMode();
     renderLogItems();
@@ -2938,92 +2951,92 @@
   }
   function applyCollapsed() {
     syncPrefsFromStorage();
-    if (!app2.ui) return;
-    if (app2.ui.mount) app2.ui.mount.style.display = app2.collapsed ? "none" : "";
-    if (app2.ui.pill) app2.ui.pill.style.display = app2.collapsed ? "flex" : "none";
+    if (!app.ui) return;
+    if (app.ui.mount) app.ui.mount.style.display = app.collapsed ? "none" : "";
+    if (app.ui.pill) app.ui.pill.style.display = app.collapsed ? "flex" : "none";
   }
   function setCollapsed(c) {
-    app2.collapsed = c;
+    app.collapsed = c;
     localStorage.setItem(keys.collapsedKey, c ? "1" : "");
     applyCollapsed();
     if (!c) scrollLogToBottom();
     updatePill();
   }
   function switchTab(name) {
-    app2.activeTab = name;
-    if (!app2.ui || !app2.ui.mount) return;
-    app2.ui.mount.querySelectorAll(".__zt-tab").forEach(function(t) {
+    app.activeTab = name;
+    if (!app.ui || !app.ui.mount) return;
+    app.ui.mount.querySelectorAll(".__zt-tab").forEach(function(t) {
       t.classList.toggle("active", t.getAttribute("data-tab") === name);
     });
-    app2.ui.mount.querySelectorAll(".__zt-tab-panel").forEach(function(p) {
+    app.ui.mount.querySelectorAll(".__zt-tab-panel").forEach(function(p) {
       p.style.display = p.getAttribute("data-panel") === name ? "" : "none";
     });
     if (name === "stats") renderStats();
     else scrollLogToBottom();
   }
   function dotStateClass() {
-    if (app2.paused) return "__zt-dot--idle";
-    if (app2.settleTimer && app2.pendingLines && app2.pendingLines.length) return "__zt-dot--rec";
-    if (app2.store) return "__zt-dot--idle";
+    if (app.paused) return "__zt-dot--idle";
+    if (app.settleTimer && app.pendingLines && app.pendingLines.length) return "__zt-dot--rec";
+    if (app.store) return "__zt-dot--idle";
     return "__zt-dot--waiting";
   }
   function updatePill() {
-    if (!app2.ui || !app2.ui.pill) return;
-    app2.ui.pillDot.className = "__zt-dot __zt-pill-dot " + dotStateClass();
-    let speaking = !app2.paused && !!(app2.settleTimer && app2.pendingLines && app2.pendingLines.length);
+    if (!app.ui || !app.ui.pill) return;
+    app.ui.pillDot.className = "__zt-dot __zt-pill-dot " + dotStateClass();
+    let speaking = !app.paused && !!(app.settleTimer && app.pendingLines && app.pendingLines.length);
     let speaker = latestPendingSpeaker();
     if (!speaker) {
-      for (let i = app2.log.length - 1; i >= 0; i--) {
-        if (app2.log[i].name && !app2.log[i].marker) {
-          speaker = app2.log[i].name;
+      for (let i = app.log.length - 1; i >= 0; i--) {
+        if (app.log[i].name && !app.log[i].marker) {
+          speaker = app.log[i].name;
           break;
         }
       }
     }
     if (speaker) {
-      app2.ui.pillChip.style.display = "flex";
-      app2.ui.pillChipDot.style.background = getSpeakerColor(speaker);
-      app2.ui.pillChipName.textContent = speaker;
-      app2.ui.pillSpeaking.style.display = speaking ? "" : "none";
+      app.ui.pillChip.style.display = "flex";
+      app.ui.pillChipDot.style.background = getSpeakerColor(speaker);
+      app.ui.pillChipName.textContent = speaker;
+      app.ui.pillSpeaking.style.display = speaking ? "" : "none";
     } else {
-      app2.ui.pillChip.style.display = "none";
-      app2.ui.pillSpeaking.style.display = "none";
+      app.ui.pillChip.style.display = "none";
+      app.ui.pillSpeaking.style.display = "none";
     }
-    app2.ui.pillMeta.textContent = elapsedText();
+    app.ui.pillMeta.textContent = elapsedText();
   }
   function updateUI() {
     watchCaptionPanel();
-    if (!app2.ui || !app2.ui.mount || !app2.ui.dot) return;
-    app2.ui.dot.className = "__zt-dot " + dotStateClass();
-    app2.ui.pausedBanner.style.display = app2.paused ? "flex" : "none";
-    app2.ui.logEntriesEl.classList.toggle("__zt-log--paused", app2.paused);
-    if (app2.paused) {
-      app2.ui.pauseBtn.className = "__zt-btn __zt-btn--resume";
-      app2.ui.pauseBtn.textContent = "\u25B6 Resume";
+    if (!app.ui || !app.ui.mount || !app.ui.dot) return;
+    app.ui.dot.className = "__zt-dot " + dotStateClass();
+    app.ui.pausedBanner.style.display = app.paused ? "flex" : "none";
+    app.ui.logEntriesEl.classList.toggle("__zt-log--paused", app.paused);
+    if (app.paused) {
+      app.ui.pauseBtn.className = "__zt-btn __zt-btn--resume";
+      app.ui.pauseBtn.textContent = "\u25B6 Resume";
     } else {
-      app2.ui.pauseBtn.className = "__zt-btn __zt-btn--pause";
-      app2.ui.pauseBtn.textContent = "\u23F8 Pause";
+      app.ui.pauseBtn.className = "__zt-btn __zt-btn--pause";
+      app.ui.pauseBtn.textContent = "\u23F8 Pause";
     }
     renderLogItems();
     renderPendingItems();
     syncIdle();
-    if (app2.activeTab === "stats") renderStats();
-    if (!app2.paused) app2.ui.timerEl.textContent = elapsedText();
+    if (app.activeTab === "stats") renderStats();
+    if (!app.paused) app.ui.timerEl.textContent = elapsedText();
     updatePill();
   }
 
   // src/inject.js
   function tryInjectIntoIframe(source) {
-    if (app2.injectAttempted || !source) return false;
+    if (app.injectAttempted || !source) return false;
     let iframe = document.getElementById("webclient");
     if (!iframe || !iframe.contentWindow || !iframe.contentDocument) {
-      app2.pendingInjectSource = source;
+      app.pendingInjectSource = source;
       return false;
     }
-    app2.pendingInjectSource = null;
+    app.pendingInjectSource = null;
     try {
       if (iframe.contentWindow.__ztCaptionLoaded) return true;
-      app2.injectAttempted = true;
+      app.injectAttempted = true;
       let script = iframe.contentDocument.createElement("script");
       script.textContent = source;
       iframe.contentDocument.head.appendChild(script);
@@ -3060,24 +3073,24 @@
     loadBookmarks();
     window.__ztCaption = {
       getLog: function() {
-        return app2.log.slice();
+        return app.log.slice();
       },
       probe: function() {
-        app2.wcWin = getWebclientWindow();
-        let found = findReduxStore(app2.wcWin.document);
+        app.wcWin = getWebclientWindow();
+        let found = findReduxStore(app.wcWin.document);
         let info = {
-          frame: window === app2.wcWin ? "webclient" : "parent-shell",
-          wcUrl: app2.wcWin.location.href,
+          frame: window === app.wcWin ? "webclient" : "parent-shell",
+          wcUrl: app.wcWin.location.href,
           storeFound: !!found,
-          storeActive: !!app2.store,
-          lineCount: app2.log.length,
-          captionBoxFound: !!findCaptionBox(app2.wcWin.document),
+          storeActive: !!app.store,
+          lineCount: app.log.length,
+          captionBoxFound: !!findCaptionBox(app.wcWin.document),
           captionPanelAttached: !!(function() {
-            let m = app2.wcWin.document.getElementById("__zt-caption-mount");
+            let m = app.wcWin.document.getElementById("__zt-caption-mount");
             return m && m.isConnected;
           })(),
           captionDockVisible: !!(function() {
-            let d = app2.wcWin.document.getElementById("__zt-caption-dock");
+            let d = app.wcWin.document.getElementById("__zt-caption-dock");
             return d && d.style.display !== "none";
           })()
         };
@@ -3092,8 +3105,8 @@
         return info;
       },
       findStore: function() {
-        app2.wcWin = getWebclientWindow();
-        return findReduxStore(app2.wcWin.document);
+        app.wcWin = getWebclientWindow();
+        return findReduxStore(app.wcWin.document);
       }
     };
     if (isParentShell() && document.currentScript) {
@@ -3118,7 +3131,7 @@
           clearInterval(injectRetry);
           return;
         }
-        if (app2.pendingInjectSource) tryInjectIntoIframe(app2.pendingInjectSource);
+        if (app.pendingInjectSource) tryInjectIntoIframe(app.pendingInjectSource);
         else if (bootScript && bootScript.textContent) tryInjectIntoIframe(bootScript.textContent);
       }, 500);
       setTimeout(function() {
@@ -3140,7 +3153,7 @@
       console.info("[ZT Captions] Parent shell bootstrap \u2014 recorder runs in #webclient iframe.");
       return window.__ztCaption;
     }
-    app2.pollTimer = setInterval(pollStore, POLL_MS);
+    app.pollTimer = setInterval(pollStore, POLL_MS);
     pollStore();
     try {
       startCaptionsAutoEnable(activeDoc());

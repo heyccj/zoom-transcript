@@ -4,11 +4,12 @@ import { extractLines, extractChatLines } from './redux.js';
 import { addMarker } from './ingest.js';
 import { getSpeakerColor, latestPendingSpeaker } from './bookmarks.js';
 import { watchCaptionPanel } from './ui-mount.js';
-import { renderLogItems, renderPendingItems, syncIdle, renderStats, scrollLogToBottom, updateTimerDisplay } from './render.js';
+import { syncPrefsFromStorage } from './ui-core.js';
+import { renderLogItems, renderPendingItems, syncIdle, renderStats, scrollLogToBottom, updateTimerDisplay, elapsedText } from './render.js';
 export function setPaused(p) {
   if (app.paused === p) return;
   app.paused = p;
-  addMarker(p ? 'Recording app.paused' : 'Recording resumed', 'pause-event');
+  addMarker(p ? 'Recording paused' : 'Recording resumed', 'pause-event');
   if (app.settleTimer) {
     clearTimeout(app.settleTimer);
     app.settleTimer = null;
