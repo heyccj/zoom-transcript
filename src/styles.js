@@ -316,6 +316,10 @@ export function ensureStyles(doc) {
     .__zt-btn-icon .__zt-bookmark-icon {
       display: block;
     }
+    .__zt-bookmark-mode .__zt-caption-mount,
+    .__zt-bookmark-mode .__zt-log-entries {
+      cursor: default;
+    }
     .__zt-bookmark-mode #__zt-settled .__zt-entry:not(.__zt-entry--marker) {
       cursor: pointer;
     }

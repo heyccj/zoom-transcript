@@ -1,6 +1,6 @@
 import { app, keys } from './state.js';
 import { SPEAKER_PALETTE_DARK, SPEAKER_PALETTE_LIGHT } from './constants.js';
-import { shieldInputEvents } from './utils.js';
+import { shieldInputEvents, shieldFromCaptionDrag } from './utils.js';
 export function getSpeakerColor(name) {
   if (!name) return app.darkMode ? '#9aa3af' : '#6b7280';
   if (app.speakerColorMap[name] == null) {
@@ -254,6 +254,7 @@ export function ensureBookmarkChip(row, key, label, doc) {
     chip.className = '__zt-entry-bookmark';
     chip.title = 'Rename or remove bookmark';
     chip.addEventListener('mousedown', function (ev) { ev.stopPropagation(); });
+    chip.addEventListener('pointerdown', function (ev) { ev.stopPropagation(); });
     let header = row.querySelector('.__zt-entry-header');
     if (header) header.insertBefore(chip, header.firstChild);
     else {
@@ -294,6 +295,7 @@ export function ensureBookmarkWiring(mount, doc) {
   }
   if (bookmarkBtn) {
     bookmarkBtn.onclick = toggleBookmarkMode;
+    shieldFromCaptionDrag(bookmarkBtn);
     if (!bookmarkBtn.querySelector('.__zt-bookmark-icon')) setBookmarkBtnIcon(bookmarkBtn, 12);
   }
 
@@ -340,9 +342,10 @@ export function ensureBookmarkWiring(mount, doc) {
 
   let logEntries = mount.querySelector('#__zt-log-entries');
   if (logEntries) {
-    if (logEntries.dataset.ztBookmarkBound !== '2') {
-      logEntries.dataset.ztBookmarkBound = '2';
+    if (logEntries.dataset.ztBookmarkBound !== '3') {
+      logEntries.dataset.ztBookmarkBound = '3';
       logEntries.addEventListener('click', handleLogBookmarksClick, true);
+      logEntries.addEventListener('mousedown', handleLogBookmarksPointer, false);
     }
   }
 }
@@ -366,18 +369,21 @@ export function resolveEntryFromRow(row) {
 }
 
 export function handleLogBookmarksClick(e) {
-  if (e.target.closest && e.target.closest('.__zt-entry-bookmark')) {
-    e.preventDefault();
-    e.stopPropagation();
-    let chip = e.target.closest('.__zt-entry-bookmark');
-    let entryKey = chip.getAttribute('data-entry-key');
-    if (!entryKey) return;
-    let row = chip.closest('.__zt-entry');
-    let resolved = row ? resolveEntryFromRow(row) : { entryKey: entryKey, entry: findLogEntry(entryKey) };
-    if (!resolved || !resolved.entry) return;
-    showBookmarkEditDialog(resolved.entryKey, resolved.entry);
-    return;
-  }
+  if (!e.target.closest || !e.target.closest('.__zt-entry-bookmark')) return;
+  e.preventDefault();
+  e.stopPropagation();
+  let chip = e.target.closest('.__zt-entry-bookmark');
+  let entryKey = chip.getAttribute('data-entry-key');
+  if (!entryKey) return;
+  let row = chip.closest('.__zt-entry');
+  let resolved = row ? resolveEntryFromRow(row) : { entryKey: entryKey, entry: findLogEntry(entryKey) };
+  if (!resolved || !resolved.entry) return;
+  showBookmarkEditDialog(resolved.entryKey, resolved.entry);
+}
+
+export function handleLogBookmarksPointer(e) {
+  if (e.button !== 0 || !app.bookmarkMode) return;
+  if (e.target.closest && e.target.closest('.__zt-entry-bookmark')) return;
   handleBookmarkPlacementClick(e);
 }
 

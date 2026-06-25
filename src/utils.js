@@ -16,3 +16,12 @@ export function shieldInputEvents(el) {
     el.addEventListener(type, function (e) { e.stopPropagation(); });
   });
 }
+
+// Prevent Zoom's draggable caption box from stealing pointer events on controls.
+export function shieldFromCaptionDrag(el) {
+  if (!el || el.dataset.ztDragShield) return;
+  el.dataset.ztDragShield = '1';
+  ['mousedown', 'pointerdown'].forEach(function (type) {
+    el.addEventListener(type, function (e) { e.stopPropagation(); });
+  });
+}

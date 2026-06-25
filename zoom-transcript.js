@@ -1,4 +1,4 @@
-/* Bundled at 2026-06-18T19:14:06Z */
+/* Bundled at 2026-06-25T15:17:33Z */
 (() => {
   // src/constants.js
   var POLL_MS = 800;
@@ -632,6 +632,15 @@
       });
     });
   }
+  function shieldFromCaptionDrag(el) {
+    if (!el || el.dataset.ztDragShield) return;
+    el.dataset.ztDragShield = "1";
+    ["mousedown", "pointerdown"].forEach(function(type) {
+      el.addEventListener(type, function(e) {
+        e.stopPropagation();
+      });
+    });
+  }
 
   // src/bookmarks.js
   function getSpeakerColor(name) {
@@ -864,6 +873,9 @@
       chip.addEventListener("mousedown", function(ev) {
         ev.stopPropagation();
       });
+      chip.addEventListener("pointerdown", function(ev) {
+        ev.stopPropagation();
+      });
       let header = row.querySelector(".__zt-entry-header");
       if (header) header.insertBefore(chip, header.firstChild);
       else {
@@ -903,6 +915,7 @@
     }
     if (bookmarkBtn) {
       bookmarkBtn.onclick = toggleBookmarkMode;
+      shieldFromCaptionDrag(bookmarkBtn);
       if (!bookmarkBtn.querySelector(".__zt-bookmark-icon")) setBookmarkBtnIcon(bookmarkBtn, 12);
     }
     let dialog = mount.querySelector("#__zt-bookmark-dialog");
@@ -936,9 +949,10 @@
     }
     let logEntries = mount.querySelector("#__zt-log-entries");
     if (logEntries) {
-      if (logEntries.dataset.ztBookmarkBound !== "2") {
-        logEntries.dataset.ztBookmarkBound = "2";
+      if (logEntries.dataset.ztBookmarkBound !== "3") {
+        logEntries.dataset.ztBookmarkBound = "3";
         logEntries.addEventListener("click", handleLogBookmarksClick, true);
+        logEntries.addEventListener("mousedown", handleLogBookmarksPointer, false);
       }
     }
   }
@@ -960,18 +974,20 @@
     return { entryKey, entry };
   }
   function handleLogBookmarksClick(e) {
-    if (e.target.closest && e.target.closest(".__zt-entry-bookmark")) {
-      e.preventDefault();
-      e.stopPropagation();
-      let chip = e.target.closest(".__zt-entry-bookmark");
-      let entryKey = chip.getAttribute("data-entry-key");
-      if (!entryKey) return;
-      let row = chip.closest(".__zt-entry");
-      let resolved = row ? resolveEntryFromRow(row) : { entryKey, entry: findLogEntry(entryKey) };
-      if (!resolved || !resolved.entry) return;
-      showBookmarkEditDialog(resolved.entryKey, resolved.entry);
-      return;
-    }
+    if (!e.target.closest || !e.target.closest(".__zt-entry-bookmark")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    let chip = e.target.closest(".__zt-entry-bookmark");
+    let entryKey = chip.getAttribute("data-entry-key");
+    if (!entryKey) return;
+    let row = chip.closest(".__zt-entry");
+    let resolved = row ? resolveEntryFromRow(row) : { entryKey, entry: findLogEntry(entryKey) };
+    if (!resolved || !resolved.entry) return;
+    showBookmarkEditDialog(resolved.entryKey, resolved.entry);
+  }
+  function handleLogBookmarksPointer(e) {
+    if (e.button !== 0 || !app.bookmarkMode) return;
+    if (e.target.closest && e.target.closest(".__zt-entry-bookmark")) return;
     handleBookmarkPlacementClick(e);
   }
   function handleBookmarkPlacementClick(e) {
@@ -1060,7 +1076,14 @@
     let animateNew = app.renderedLogCount > 0;
     for (let i = app.renderedLogCount; i < app.log.length; i++) {
       let e = app.log[i];
-      let existing = app.ui.settledEl.querySelector('[data-key="' + e.key.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"]');
+      let existing = null;
+      let settledRows = app.ui.settledEl.querySelectorAll(".__zt-entry[data-key]");
+      for (let r = 0; r < settledRows.length; r++) {
+        if (settledRows[r].getAttribute("data-key") === e.key) {
+          existing = settledRows[r];
+          break;
+        }
+      }
       if (existing) continue;
       let continued = !e.marker && !e.chat && !!e.name && e.name === app.lastRenderedSpeaker;
       let node = buildEntryNode(doc, e, continued, false);
@@ -1646,6 +1669,10 @@
     }
     .__zt-btn-icon .__zt-bookmark-icon {
       display: block;
+    }
+    .__zt-bookmark-mode .__zt-caption-mount,
+    .__zt-bookmark-mode .__zt-log-entries {
+      cursor: default;
     }
     .__zt-bookmark-mode #__zt-settled .__zt-entry:not(.__zt-entry--marker) {
       cursor: pointer;

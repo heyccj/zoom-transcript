@@ -66,7 +66,15 @@ export function renderLogItems() {
     let e = app.log[i];
     // Guard against duplicate DOM nodes when two recorder instances briefly
     // share the same caption mount (e.g. parent shell + iframe inject).
-    let existing = app.ui.settledEl.querySelector('[data-key="' + e.key.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"]');
+    // querySelector can't match keys with newlines or other CSS-special chars.
+    let existing = null;
+    let settledRows = app.ui.settledEl.querySelectorAll('.__zt-entry[data-key]');
+    for (let r = 0; r < settledRows.length; r++) {
+      if (settledRows[r].getAttribute('data-key') === e.key) {
+        existing = settledRows[r];
+        break;
+      }
+    }
     if (existing) continue;
     let continued = !e.marker && !e.chat && !!e.name && e.name === app.lastRenderedSpeaker;
     let node = buildEntryNode(doc, e, continued, false);
