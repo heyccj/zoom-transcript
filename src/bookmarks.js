@@ -88,6 +88,33 @@ export function findLogEntry(entryKey) {
   return null;
 }
 
+// Log keys change when captions grow (dedupLog recalculates makeKey). Re-attach
+// bookmarks to the current entry key so chips can render on the right row.
+export function remapBookmarkKeys() {
+  let changed = false;
+  app.bookmarks.forEach(function (bm) {
+    if (!bm.entryKey) return;
+    if (findLogEntry(bm.entryKey)) return;
+    for (let i = 0; i < app.log.length; i++) {
+      let e = app.log[i];
+      if (e.marker) continue;
+      if (bm.time && e.time && bm.time !== e.time) continue;
+      if (bm.speaker && e.name !== bm.speaker) continue;
+      if (bm.preview && e.msg && e.msg.indexOf(bm.preview.slice(0, 40)) !== 0 &&
+          bm.preview.indexOf(e.msg.slice(0, 40)) !== 0) continue;
+      if (!bm.preview && !bm.time) continue;
+      bm.entryKey = e.key;
+      changed = true;
+      return;
+    }
+  });
+  if (changed) {
+    rebuildBookmarkByKey();
+    persistBookmarks();
+    logBookmark('remap keys', { bookmarks: app.bookmarks.map(function (b) { return b.entryKey; }) });
+  }
+}
+
 export function addBookmark(entryKey, label, entryHint) {
   label = String(label || '').trim();
   if (!label) return false;
@@ -108,7 +135,9 @@ export function addBookmark(entryKey, label, entryHint) {
   });
   rebuildBookmarkByKey();
   persistBookmarks();
+  remapBookmarkKeys();
   syncBookmarkMarkers();
+  logBookmark('added', { entryKey: entryKey, label: label });
   return true;
 }
 
@@ -277,12 +306,17 @@ export function ensureBookmarkChip(row, key, label, doc) {
     chip.title = 'Rename or remove bookmark';
     chip.addEventListener('mousedown', function (ev) { ev.stopPropagation(); });
     chip.addEventListener('pointerdown', function (ev) { ev.stopPropagation(); });
+    // Continued rows hide the header — place the chip above the message instead.
     let header = row.querySelector('.__zt-entry-header');
-    if (header) header.insertBefore(chip, header.firstChild);
-    else {
-      let msg = row.querySelector('.__zt-entry-msg');
-      if (msg) row.insertBefore(chip, msg);
-      else row.insertBefore(chip, row.firstChild);
+    let msg = row.querySelector('.__zt-entry-msg');
+    if (row.classList.contains('__zt-entry--continued') && msg) {
+      row.insertBefore(chip, msg);
+    } else if (header) {
+      header.insertBefore(chip, header.firstChild);
+    } else if (msg) {
+      row.insertBefore(chip, msg);
+    } else {
+      row.insertBefore(chip, row.firstChild);
     }
   }
   chip.textContent = '';
@@ -402,7 +436,7 @@ export function resolveEntryFromRow(row) {
       msg: msgEl ? msgEl.textContent : ''
     };
   }
-  return { entryKey: entryKey, entry: entry };
+  return { entryKey: entry.key || entryKey, entry: entry };
 }
 
 export function handleLogBookmarksClick(e) {
@@ -505,13 +539,21 @@ export function handleBookmarkPlacementClick(e) {
 
 export function syncBookmarkMarkers() {
   if (!app.ui || !app.ui.settledEl) return;
+  remapBookmarkKeys();
   let doc = app.ui.settledEl.ownerDocument;
   let rows = app.ui.settledEl.querySelectorAll('.__zt-entry');
+  let matched = new Set();
   for (let i = 0; i < rows.length; i++) {
     let row = rows[i];
+    let idx = parseInt(row.getAttribute('data-log-index'), 10);
     let key = row.getAttribute('data-key');
+    if (!isNaN(idx) && app.log[idx] && app.log[idx].key) {
+      key = app.log[idx].key;
+      if (row.getAttribute('data-key') !== key) row.setAttribute('data-key', key);
+    }
     let label = key ? app.bookmarkByKey.get(key) : null;
     let bookmarked = !!label;
+    if (bookmarked && key) matched.add(key);
     row.classList.toggle('__zt-entry--bookmarked', bookmarked);
     if (bookmarked) {
       ensureBookmarkChip(row, key, label, doc);
@@ -520,4 +562,10 @@ export function syncBookmarkMarkers() {
       if (chip) chip.remove();
     }
   }
+  app.bookmarkByKey.forEach(function (label, key) {
+    if (matched.has(key)) return;
+    if (app.debugBookmark) {
+      warnBookmark('saved but no log row — key may be stale', { entryKey: key, label: label });
+    }
+  });
 }

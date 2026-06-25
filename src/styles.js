@@ -365,9 +365,12 @@ export function ensureStyles(doc) {
       background: rgba(245, 158, 11, 0.28);
     }
     .__zt-entry--continued .__zt-entry-bookmark {
-      display: block;
+      display: inline-flex;
       margin-bottom: 2px;
       margin-left: 56px;
+    }
+    .__zt-entry--continued.__zt-entry--bookmarked .__zt-entry-header {
+      display: none;
     }
     .__zt-bookmark-dialog {
       position: absolute;

@@ -1,4 +1,4 @@
-/* Bundled at 2026-06-25T18:41:30Z */
+/* Bundled at 2026-06-25T18:47:24Z */
 (() => {
   // src/constants.js
   var POLL_MS = 800;
@@ -767,6 +767,31 @@
     }
     return null;
   }
+  function remapBookmarkKeys() {
+    let changed = false;
+    app.bookmarks.forEach(function(bm) {
+      if (!bm.entryKey) return;
+      if (findLogEntry(bm.entryKey)) return;
+      for (let i = 0; i < app.log.length; i++) {
+        let e = app.log[i];
+        if (e.marker) continue;
+        if (bm.time && e.time && bm.time !== e.time) continue;
+        if (bm.speaker && e.name !== bm.speaker) continue;
+        if (bm.preview && e.msg && e.msg.indexOf(bm.preview.slice(0, 40)) !== 0 && bm.preview.indexOf(e.msg.slice(0, 40)) !== 0) continue;
+        if (!bm.preview && !bm.time) continue;
+        bm.entryKey = e.key;
+        changed = true;
+        return;
+      }
+    });
+    if (changed) {
+      rebuildBookmarkByKey();
+      persistBookmarks();
+      logBookmark("remap keys", { bookmarks: app.bookmarks.map(function(b) {
+        return b.entryKey;
+      }) });
+    }
+  }
   function addBookmark(entryKey, label, entryHint) {
     label = String(label || "").trim();
     if (!label) return false;
@@ -785,7 +810,9 @@
     });
     rebuildBookmarkByKey();
     persistBookmarks();
+    remapBookmarkKeys();
     syncBookmarkMarkers();
+    logBookmark("added", { entryKey, label });
     return true;
   }
   function renameBookmark(entryKey, label) {
@@ -944,11 +971,15 @@
         ev.stopPropagation();
       });
       let header = row.querySelector(".__zt-entry-header");
-      if (header) header.insertBefore(chip, header.firstChild);
-      else {
-        let msg = row.querySelector(".__zt-entry-msg");
-        if (msg) row.insertBefore(chip, msg);
-        else row.insertBefore(chip, row.firstChild);
+      let msg = row.querySelector(".__zt-entry-msg");
+      if (row.classList.contains("__zt-entry--continued") && msg) {
+        row.insertBefore(chip, msg);
+      } else if (header) {
+        header.insertBefore(chip, header.firstChild);
+      } else if (msg) {
+        row.insertBefore(chip, msg);
+      } else {
+        row.insertBefore(chip, row.firstChild);
       }
     }
     chip.textContent = "";
@@ -1053,7 +1084,7 @@
         msg: msgEl ? msgEl.textContent : ""
       };
     }
-    return { entryKey, entry };
+    return { entryKey: entry.key || entryKey, entry };
   }
   function handleLogBookmarksClick(e) {
     if (!e.target.closest || !e.target.closest(".__zt-entry-bookmark")) return;
@@ -1142,13 +1173,21 @@
   }
   function syncBookmarkMarkers() {
     if (!app.ui || !app.ui.settledEl) return;
+    remapBookmarkKeys();
     let doc = app.ui.settledEl.ownerDocument;
     let rows = app.ui.settledEl.querySelectorAll(".__zt-entry");
+    let matched = /* @__PURE__ */ new Set();
     for (let i = 0; i < rows.length; i++) {
       let row = rows[i];
+      let idx = parseInt(row.getAttribute("data-log-index"), 10);
       let key = row.getAttribute("data-key");
+      if (!isNaN(idx) && app.log[idx] && app.log[idx].key) {
+        key = app.log[idx].key;
+        if (row.getAttribute("data-key") !== key) row.setAttribute("data-key", key);
+      }
       let label = key ? app.bookmarkByKey.get(key) : null;
       let bookmarked = !!label;
+      if (bookmarked && key) matched.add(key);
       row.classList.toggle("__zt-entry--bookmarked", bookmarked);
       if (bookmarked) {
         ensureBookmarkChip(row, key, label, doc);
@@ -1157,6 +1196,12 @@
         if (chip) chip.remove();
       }
     }
+    app.bookmarkByKey.forEach(function(label, key) {
+      if (matched.has(key)) return;
+      if (app.debugBookmark) {
+        warnBookmark("saved but no log row \u2014 key may be stale", { entryKey: key, label });
+      }
+    });
   }
 
   // src/render.js
@@ -1344,6 +1389,7 @@
   // src/ingest.js
   function persistLog() {
     app.log = dedupLog(app.log);
+    remapBookmarkKeys();
     syncSeenFromLog();
     rebuildSpeakerStats();
     if (app.log.length) {
@@ -1854,9 +1900,12 @@
       background: rgba(245, 158, 11, 0.28);
     }
     .__zt-entry--continued .__zt-entry-bookmark {
-      display: block;
+      display: inline-flex;
       margin-bottom: 2px;
       margin-left: 56px;
+    }
+    .__zt-entry--continued.__zt-entry--bookmarked .__zt-entry-header {
+      display: none;
     }
     .__zt-bookmark-dialog {
       position: absolute;

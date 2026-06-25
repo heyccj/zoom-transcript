@@ -3,13 +3,14 @@ import { SETTLE_MS, MAX_INJECT_RETRIES } from './constants.js';
 import { makeKey, isOneShotSystemMessage } from './dedup.js';
 import { getWebclientWindow, isParentShell } from './meeting.js';
 import { findReduxStore, extractLines, extractChatLines, activeSharerMap, formatTime } from './redux.js';
-import { syncSeenFromLog, rebuildSpeakerStats } from './bookmarks.js';
+import { syncSeenFromLog, rebuildSpeakerStats, remapBookmarkKeys, syncBookmarkMarkers } from './bookmarks.js';
 import { dedupLog } from './dedup.js';
 import { tryInjectIntoIframe } from './inject.js';
 import { updateUI } from './controls.js';
 import { startElapsed } from './render.js';
 export function persistLog() {
   app.log = dedupLog(app.log);
+  remapBookmarkKeys();
   syncSeenFromLog();
   rebuildSpeakerStats();
   if (app.log.length) {
