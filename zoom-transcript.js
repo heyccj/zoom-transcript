@@ -1,4 +1,4 @@
-/* Bundled at 2026-06-25T15:17:33Z */
+/* Bundled at 2026-06-25T18:04:42Z */
 (() => {
   // src/constants.js
   var POLL_MS = 800;
@@ -14,8 +14,19 @@
   var SPEAKER_PALETTE_LIGHT = ["#0284c7", "#be185d", "#b45309", "#15803d", "#7c3aed", "#c2410c", "#0891b2", "#b91c1c"];
 
   // src/dedup.js
+  function isOneShotSystemMessage(msg) {
+    if (!msg) return false;
+    return /\bjoined as a guest\b/i.test(msg) || /\bjoined the (meeting|webinar)\b/i.test(msg) || /\bleft the (meeting|webinar)\b/i.test(msg);
+  }
   function makeKey(time, name, msg) {
+    msg = msg || "";
+    if (isOneShotSystemMessage(msg)) {
+      return "sys|" + (name || "") + "|" + msg;
+    }
     return (time || "") + "|" + (name || "") + "|" + msg.slice(0, 40);
+  }
+  function chatFallbackId(name, text) {
+    return "chat-content|" + (name || "") + "|" + (text || "");
   }
   function isProgressiveUpdate(prev, time, name, msg) {
     if (prev.time !== time || prev.name !== name) return false;
@@ -23,7 +34,23 @@
   }
   function dedupLog(entries) {
     let result = [];
+    let systemSeen = /* @__PURE__ */ new Set();
     entries.forEach(function(e) {
+      if (isOneShotSystemMessage(e.msg)) {
+        let sysKey = makeKey(e.time, e.name, e.msg);
+        if (systemSeen.has(sysKey)) return;
+        systemSeen.add(sysKey);
+        result.push({
+          key: sysKey,
+          time: e.time,
+          name: e.name,
+          msg: e.msg,
+          src: e.src,
+          marker: e.marker,
+          chat: e.chat
+        });
+        return;
+      }
       let matchIdx = -1;
       for (let j = result.length - 1; j >= 0; j--) {
         let prev = result[j];
@@ -307,6 +334,7 @@
         let text = normalizeText(msg.message || msg.decryptedMessage || msg.text);
         if (!text) return;
         let time = msg.messageTime ? formatTime(msg.messageTime) : "";
+        if (isOneShotSystemMessage(text)) time = "";
         let name = resolveName(msg, names);
         let key = makeKey(time, name, text);
         if (seenKeys.has(key)) return;
@@ -331,7 +359,7 @@
         let text = normalizeText(msg.text || msg.message);
         if (!text) return;
         rows.push({
-          time: msg.messageTime ? formatTime(msg.messageTime) : "",
+          time: isOneShotSystemMessage(text) ? "" : msg.messageTime ? formatTime(msg.messageTime) : "",
           name: resolveName(msg, names),
           msg: text,
           src: "newLTMessage",
@@ -345,7 +373,7 @@
     let text = normalizeText(state.meeting && state.meeting.messageLatest);
     if (!text) return [];
     return [{
-      time: formatTime(Date.now()),
+      time: "",
       name: null,
       msg: text,
       src: "messageLatest",
@@ -401,12 +429,12 @@
   }
   function chatMessageTime(thread, msg) {
     let raw = msg.time || msg.timestamp || msg.timeStamp || msg.ct || thread.time || thread.timeStamp || thread.timestamp;
-    return raw ? formatTime(raw) : formatTime(Date.now());
+    return raw ? formatTime(raw) : "";
   }
   function chatMessageId(thread, msg, text, time, name) {
-    return String(
-      msg.msgId || msg.id || msg.xmppMsgId || thread.msgId || thread.id || thread.xmppMsgId || makeKey(time, name, text)
-    );
+    let id = msg.msgId || msg.id || msg.xmppMsgId || thread.msgId || thread.id || thread.xmppMsgId;
+    if (id != null && String(id) !== "") return String(id);
+    return chatFallbackId(name, text);
   }
   function extractChatLines(reduxState) {
     let names = attendeeNameMap(reduxState);
@@ -1226,7 +1254,7 @@
       added++;
       app.log.push({
         key,
-        time: line.time,
+        time: line.time || formatTime(Date.now()),
         name: line.name,
         msg: line.msg,
         src: line.src
@@ -1245,7 +1273,7 @@
       added++;
       app.log.push({
         key,
-        time: line.time,
+        time: line.time || formatTime(Date.now()),
         name: line.name,
         msg: line.msg,
         src: line.src,

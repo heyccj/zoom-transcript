@@ -28,7 +28,7 @@ export function ingestLines(lines) {
     added++;
     app.log.push({
       key: key,
-      time: line.time,
+      time: line.time || formatTime(Date.now()),
       name: line.name,
       msg: line.msg,
       src: line.src
@@ -48,7 +48,7 @@ export function ingestChatLines(lines) {
     added++;
     app.log.push({
       key: key,
-      time: line.time,
+      time: line.time || formatTime(Date.now()),
       name: line.name,
       msg: line.msg,
       src: line.src,

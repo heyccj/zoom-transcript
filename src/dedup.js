@@ -1,5 +1,20 @@
+export function isOneShotSystemMessage(msg) {
+  if (!msg) return false;
+  return /\bjoined as a guest\b/i.test(msg) ||
+    /\bjoined the (meeting|webinar)\b/i.test(msg) ||
+    /\bleft the (meeting|webinar)\b/i.test(msg);
+}
+
 export function makeKey(time, name, msg) {
+  msg = msg || '';
+  if (isOneShotSystemMessage(msg)) {
+    return 'sys|' + (name || '') + '|' + msg;
+  }
   return (time || '') + '|' + (name || '') + '|' + msg.slice(0, 40);
+}
+
+export function chatFallbackId(name, text) {
+  return 'chat-content|' + (name || '') + '|' + (text || '');
 }
 
 export function isProgressiveUpdate(prev, time, name, msg) {
@@ -9,7 +24,23 @@ export function isProgressiveUpdate(prev, time, name, msg) {
 
 export function dedupLog(entries) {
   let result = [];
+  let systemSeen = new Set();
   entries.forEach(function (e) {
+    if (isOneShotSystemMessage(e.msg)) {
+      let sysKey = makeKey(e.time, e.name, e.msg);
+      if (systemSeen.has(sysKey)) return;
+      systemSeen.add(sysKey);
+      result.push({
+        key: sysKey,
+        time: e.time,
+        name: e.name,
+        msg: e.msg,
+        src: e.src,
+        marker: e.marker,
+        chat: e.chat
+      });
+      return;
+    }
     let matchIdx = -1;
     for (let j = result.length - 1; j >= 0; j--) {
       let prev = result[j];

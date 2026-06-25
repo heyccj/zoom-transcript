@@ -1,4 +1,4 @@
-import { makeKey } from './dedup.js';
+import { makeKey, chatFallbackId, isOneShotSystemMessage } from './dedup.js';
 export function looksLikeStore(obj) {
   return obj &&
     typeof obj.getState === 'function' &&
@@ -151,6 +151,7 @@ export function linesFromAllMessages(state, names) {
       let text = normalizeText(msg.message || msg.decryptedMessage || msg.text);
       if (!text) return;
       let time = msg.messageTime ? formatTime(msg.messageTime) : '';
+      if (isOneShotSystemMessage(text)) time = '';
       let name = resolveName(msg, names);
       let key = makeKey(time, name, text);
       if (seenKeys.has(key)) return;
@@ -178,7 +179,7 @@ export function linesFromNewLTMessage(state, names) {
       let text = normalizeText(msg.text || msg.message);
       if (!text) return;
       rows.push({
-        time: msg.messageTime ? formatTime(msg.messageTime) : '',
+        time: isOneShotSystemMessage(text) ? '' : (msg.messageTime ? formatTime(msg.messageTime) : ''),
         name: resolveName(msg, names),
         msg: text,
         src: 'newLTMessage',
@@ -194,7 +195,7 @@ export function linesFromMessageLatest(state) {
   let text = normalizeText(state.meeting && state.meeting.messageLatest);
   if (!text) return [];
   return [{
-    time: formatTime(Date.now()),
+    time: '',
     name: null,
     msg: text,
     src: 'messageLatest',
@@ -259,14 +260,13 @@ export function chatAudienceLabel(thread, msg) {
 export function chatMessageTime(thread, msg) {
   let raw = msg.time || msg.timestamp || msg.timeStamp || msg.ct ||
     thread.time || thread.timeStamp || thread.timestamp;
-  return raw ? formatTime(raw) : formatTime(Date.now());
+  return raw ? formatTime(raw) : '';
 }
 
 export function chatMessageId(thread, msg, text, time, name) {
-  return String(
-    msg.msgId || msg.id || msg.xmppMsgId || thread.msgId || thread.id ||
-    thread.xmppMsgId || makeKey(time, name, text)
-  );
+  let id = msg.msgId || msg.id || msg.xmppMsgId || thread.msgId || thread.id || thread.xmppMsgId;
+  if (id != null && String(id) !== '') return String(id);
+  return chatFallbackId(name, text);
 }
 
 export function extractChatLines(reduxState) {
