@@ -2,13 +2,15 @@ export function isOneShotSystemMessage(msg) {
   if (!msg) return false;
   return /\bjoined as a guest\b/i.test(msg) ||
     /\bjoined the (meeting|webinar)\b/i.test(msg) ||
-    /\bleft the (meeting|webinar)\b/i.test(msg);
+    /\bleft the (meeting|webinar)\b/i.test(msg) ||
+    /\bmeeting group chat\b/i.test(msg) ||
+    /\bmessages addressed to\b/i.test(msg);
 }
 
 export function makeKey(time, name, msg) {
   msg = msg || '';
   if (isOneShotSystemMessage(msg)) {
-    return 'sys|' + (name || '') + '|' + msg;
+    return 'sys|' + msg;
   }
   return (time || '') + '|' + (name || '') + '|' + msg.slice(0, 40);
 }

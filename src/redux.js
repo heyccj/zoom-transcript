@@ -240,8 +240,27 @@ export function chatMessageText(msg, thread) {
   return text;
 }
 
+export function resolveChatLabel(value) {
+  if (value == null) return null;
+  if (typeof value === 'string') {
+    let s = value.trim();
+    return s || null;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (typeof value === 'object') {
+    return resolveChatLabel(
+      value.displayName || value.name || value.userName || value.receiverName ||
+      value.label || value.text || value.title
+    );
+  }
+  return null;
+}
+
 export function chatSenderName(thread, msg, names) {
-  let name = msg.senderName || thread.senderName || thread.sender || thread.chatSender;
+  let name = resolveChatLabel(msg.senderName) ||
+    resolveChatLabel(thread.senderName) ||
+    resolveChatLabel(thread.sender) ||
+    resolveChatLabel(thread.chatSender);
   if (name) return name;
   let senderId = msg.senderId != null ? msg.senderId : thread.senderId;
   if (senderId != null && names[senderId]) return names[senderId];
@@ -250,10 +269,13 @@ export function chatSenderName(thread, msg, names) {
 
 export function chatAudienceLabel(thread, msg) {
   let ext = msg.meetingChatExt || thread.meetingChatExt;
-  if (ext && ext.receiverName) return 'to ' + ext.receiverName;
-  if (thread.chatReceiver) return 'to ' + thread.chatReceiver;
-  if (thread.receiver) return 'to ' + thread.receiver;
-  if (ext && ext.isPrivately) return 'privately';
+  if (ext) {
+    let receiverName = resolveChatLabel(ext.receiverName);
+    if (receiverName) return 'to ' + receiverName;
+    if (ext.isPrivately) return 'privately';
+  }
+  let receiver = resolveChatLabel(thread.chatReceiver) || resolveChatLabel(thread.receiver);
+  if (receiver) return 'to ' + receiver;
   return null;
 }
 
@@ -266,6 +288,7 @@ export function chatMessageTime(thread, msg) {
 export function chatMessageId(thread, msg, text, time, name) {
   let id = msg.msgId || msg.id || msg.xmppMsgId || thread.msgId || thread.id || thread.xmppMsgId;
   if (id != null && String(id) !== '') return String(id);
+  if (isOneShotSystemMessage(text)) return makeKey(null, null, text);
   return chatFallbackId(name, text);
 }
 

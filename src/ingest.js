@@ -1,6 +1,6 @@
 import { app, keys } from './state.js';
 import { SETTLE_MS, MAX_INJECT_RETRIES } from './constants.js';
-import { makeKey } from './dedup.js';
+import { makeKey, isOneShotSystemMessage } from './dedup.js';
 import { getWebclientWindow, isParentShell } from './meeting.js';
 import { findReduxStore, extractLines, extractChatLines, activeSharerMap, formatTime } from './redux.js';
 import { syncSeenFromLog, rebuildSpeakerStats } from './bookmarks.js';
@@ -42,7 +42,9 @@ export function ingestChatLines(lines) {
   if (app.paused) return 0;
   let added = 0;
   lines.forEach(function (line) {
-    let key = 'chat|' + line.chatId;
+    let key = isOneShotSystemMessage(line.msg)
+      ? makeKey(line.time, line.name, line.msg)
+      : 'chat|' + line.chatId;
     if (app.seen.has(key)) return;
     app.seen.add(key);
     added++;

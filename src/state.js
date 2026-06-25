@@ -67,6 +67,8 @@ export const app = {
   panelWidth: CAPTION_PANEL_WIDTH,
   logHeight: DEFAULT_LOG_HEIGHT,
   bookmarkDialogCtx: null,
+  debugPending: false,
+  _pendingDebugPrev: null,
   prevSharers: null,
   boxAttachTimer: null,
   lastPanelWatchAt: 0

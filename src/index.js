@@ -67,6 +67,12 @@ function boot() {
     findStore: function () {
       app.wcWin = getWebclientWindow();
       return findReduxStore(app.wcWin.document);
+    },
+    debugPending: function (on) {
+      app.debugPending = on !== false;
+      app._pendingDebugPrev = null;
+      console.info('[ZT Captions] pending debug ' + (app.debugPending ? 'on' : 'off'));
+      return app.debugPending;
     }
   };
 
@@ -107,6 +113,10 @@ function boot() {
       },
       findStore: function () {
         return findReduxStore(getWebclientWindow().document);
+      },
+      debugPending: function (on) {
+        let cap = getWebclientWindow().__ztCaption;
+        return cap ? cap.debugPending(on) : false;
       }
     };
 
@@ -121,7 +131,7 @@ function boot() {
   } catch (e) { /* iframe not ready yet */ }
   updateUI();
 
-  console.info('[ZT Captions] Ready. Debug with __ztCaption.probe()');
+  console.info('[ZT Captions] Ready. Debug with __ztCaption.probe() or __ztCaption.debugPending(true)');
   return window.__ztCaption;
 }
 

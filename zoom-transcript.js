@@ -1,4 +1,4 @@
-/* Bundled at 2026-06-25T18:04:42Z */
+/* Bundled at 2026-06-25T18:14:08Z */
 (() => {
   // src/constants.js
   var POLL_MS = 800;
@@ -16,12 +16,12 @@
   // src/dedup.js
   function isOneShotSystemMessage(msg) {
     if (!msg) return false;
-    return /\bjoined as a guest\b/i.test(msg) || /\bjoined the (meeting|webinar)\b/i.test(msg) || /\bleft the (meeting|webinar)\b/i.test(msg);
+    return /\bjoined as a guest\b/i.test(msg) || /\bjoined the (meeting|webinar)\b/i.test(msg) || /\bleft the (meeting|webinar)\b/i.test(msg) || /\bmeeting group chat\b/i.test(msg) || /\bmessages addressed to\b/i.test(msg);
   }
   function makeKey(time, name, msg) {
     msg = msg || "";
     if (isOneShotSystemMessage(msg)) {
-      return "sys|" + (name || "") + "|" + msg;
+      return "sys|" + msg;
     }
     return (time || "") + "|" + (name || "") + "|" + msg.slice(0, 40);
   }
@@ -179,6 +179,8 @@
     panelWidth: CAPTION_PANEL_WIDTH,
     logHeight: DEFAULT_LOG_HEIGHT,
     bookmarkDialogCtx: null,
+    debugPending: false,
+    _pendingDebugPrev: null,
     prevSharers: null,
     boxAttachTimer: null,
     lastPanelWatchAt: 0
@@ -412,8 +414,22 @@
     }
     return text;
   }
+  function resolveChatLabel(value) {
+    if (value == null) return null;
+    if (typeof value === "string") {
+      let s = value.trim();
+      return s || null;
+    }
+    if (typeof value === "number" || typeof value === "boolean") return String(value);
+    if (typeof value === "object") {
+      return resolveChatLabel(
+        value.displayName || value.name || value.userName || value.receiverName || value.label || value.text || value.title
+      );
+    }
+    return null;
+  }
   function chatSenderName(thread, msg, names) {
-    let name = msg.senderName || thread.senderName || thread.sender || thread.chatSender;
+    let name = resolveChatLabel(msg.senderName) || resolveChatLabel(thread.senderName) || resolveChatLabel(thread.sender) || resolveChatLabel(thread.chatSender);
     if (name) return name;
     let senderId = msg.senderId != null ? msg.senderId : thread.senderId;
     if (senderId != null && names[senderId]) return names[senderId];
@@ -421,10 +437,13 @@
   }
   function chatAudienceLabel(thread, msg) {
     let ext = msg.meetingChatExt || thread.meetingChatExt;
-    if (ext && ext.receiverName) return "to " + ext.receiverName;
-    if (thread.chatReceiver) return "to " + thread.chatReceiver;
-    if (thread.receiver) return "to " + thread.receiver;
-    if (ext && ext.isPrivately) return "privately";
+    if (ext) {
+      let receiverName = resolveChatLabel(ext.receiverName);
+      if (receiverName) return "to " + receiverName;
+      if (ext.isPrivately) return "privately";
+    }
+    let receiver = resolveChatLabel(thread.chatReceiver) || resolveChatLabel(thread.receiver);
+    if (receiver) return "to " + receiver;
     return null;
   }
   function chatMessageTime(thread, msg) {
@@ -434,6 +453,7 @@
   function chatMessageId(thread, msg, text, time, name) {
     let id = msg.msgId || msg.id || msg.xmppMsgId || thread.msgId || thread.id || thread.xmppMsgId;
     if (id != null && String(id) !== "") return String(id);
+    if (isOneShotSystemMessage(text)) return makeKey(null, null, text);
     return chatFallbackId(name, text);
   }
   function extractChatLines(reduxState) {
@@ -1062,6 +1082,31 @@
   }
 
   // src/render.js
+  function logPendingDebug(info) {
+    let prev = app._pendingDebugPrev;
+    let continuedChanged = prev && prev.continuedSig !== info.continuedSig;
+    let namesChanged = prev && prev.nameSig !== info.nameSig;
+    let countChanged = prev && prev.lineCount !== info.lineCount;
+    let hasNullName = info.lines.some(function(l) {
+      return !l.name && l.msg;
+    });
+    let headerToggled = prev && prev.headerSig !== info.headerSig;
+    info.anomaly = {
+      continuedChanged,
+      namesChanged,
+      countChanged,
+      hasNullName,
+      headerToggled
+    };
+    let interesting = app.debugPending || !prev || continuedChanged || namesChanged || countChanged || hasNullName || headerToggled;
+    if (!interesting) return;
+    if (headerToggled || continuedChanged || hasNullName) {
+      console.warn("[ZT Captions] pending flash?", info);
+    } else {
+      console.log("[ZT Captions] pending", info);
+    }
+    app._pendingDebugPrev = info;
+  }
   function buildEntryNode(doc, e, continued, pending) {
     let item = doc.createElement("div");
     let cls = "__zt-entry";
@@ -1114,6 +1159,15 @@
       }
       if (existing) continue;
       let continued = !e.marker && !e.chat && !!e.name && e.name === app.lastRenderedSpeaker;
+      if (app.debugPending) {
+        console.log("[ZT Captions] settled append", {
+          name: e.name,
+          continued,
+          lastRenderedSpeaker: app.lastRenderedSpeaker,
+          msgStart: (e.msg || "").slice(0, 32),
+          time: e.time
+        });
+      }
       let node = buildEntryNode(doc, e, continued, false);
       node.setAttribute("data-log-index", String(i));
       if (animateNew && !e.marker) {
@@ -1138,11 +1192,22 @@
     if (app.paused || !app.settleTimer || !app.pendingLines || !app.pendingLines.length) return;
     let prevName = app.lastRenderedSpeaker;
     let appended = 0;
+    let debugLines = [];
     app.pendingLines.forEach(function(line) {
       if (!line.msg) return;
       let key = makeKey(line.time, line.name, line.msg);
       if (app.seen.has(key)) return;
       let continued = !!line.name && line.name === prevName;
+      debugLines.push({
+        time: line.time,
+        name: line.name,
+        continued,
+        showHeader: !continued,
+        finished: line.finished,
+        msgLen: line.msg.length,
+        msgStart: line.msg.slice(0, 32),
+        key
+      });
       app.ui.pendingEl.appendChild(buildEntryNode(doc, {
         key,
         time: line.time,
@@ -1152,6 +1217,24 @@
       prevName = line.name || null;
       appended++;
     });
+    if (debugLines.length) {
+      logPendingDebug({
+        lastRenderedSpeaker: app.lastRenderedSpeaker,
+        lineCount: debugLines.length,
+        continuedSig: debugLines.map(function(l) {
+          return l.continued ? "1" : "0";
+        }).join(","),
+        nameSig: debugLines.map(function(l) {
+          return l.name || "(null)";
+        }).join("|"),
+        headerSig: debugLines.map(function(l) {
+          return l.showHeader ? "1" : "0";
+        }).join(","),
+        lines: debugLines
+      });
+    } else if (app._pendingDebugPrev) {
+      app._pendingDebugPrev = null;
+    }
     if (appended && nearBottom) scrollLogToBottom();
   }
   function syncIdle() {
@@ -1267,7 +1350,7 @@
     if (app.paused) return 0;
     let added = 0;
     lines.forEach(function(line) {
-      let key = "chat|" + line.chatId;
+      let key = isOneShotSystemMessage(line.msg) ? makeKey(line.time, line.name, line.msg) : "chat|" + line.chatId;
       if (app.seen.has(key)) return;
       app.seen.add(key);
       added++;
@@ -3163,6 +3246,12 @@
       findStore: function() {
         app.wcWin = getWebclientWindow();
         return findReduxStore(app.wcWin.document);
+      },
+      debugPending: function(on) {
+        app.debugPending = on !== false;
+        app._pendingDebugPrev = null;
+        console.info("[ZT Captions] pending debug " + (app.debugPending ? "on" : "off"));
+        return app.debugPending;
       }
     };
     if (isParentShell() && document.currentScript) {
@@ -3204,6 +3293,10 @@
         },
         findStore: function() {
           return findReduxStore(getWebclientWindow().document);
+        },
+        debugPending: function(on) {
+          let cap = getWebclientWindow().__ztCaption;
+          return cap ? cap.debugPending(on) : false;
         }
       };
       console.info("[ZT Captions] Parent shell bootstrap \u2014 recorder runs in #webclient iframe.");
@@ -3216,7 +3309,7 @@
     } catch (e) {
     }
     updateUI();
-    console.info("[ZT Captions] Ready. Debug with __ztCaption.probe()");
+    console.info("[ZT Captions] Ready. Debug with __ztCaption.probe() or __ztCaption.debugPending(true)");
     return window.__ztCaption;
   }
   boot();

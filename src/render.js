@@ -3,6 +3,32 @@ import { makeKey } from './dedup.js';
 import { escapeHtml } from './utils.js';
 import { getSpeakerColor, syncBookmarkMarkers } from './bookmarks.js';
 import { updatePill } from './controls.js';
+
+function logPendingDebug(info) {
+  let prev = app._pendingDebugPrev;
+  let continuedChanged = prev && prev.continuedSig !== info.continuedSig;
+  let namesChanged = prev && prev.nameSig !== info.nameSig;
+  let countChanged = prev && prev.lineCount !== info.lineCount;
+  let hasNullName = info.lines.some(function (l) { return !l.name && l.msg; });
+  let headerToggled = prev && prev.headerSig !== info.headerSig;
+  info.anomaly = {
+    continuedChanged: continuedChanged,
+    namesChanged: namesChanged,
+    countChanged: countChanged,
+    hasNullName: hasNullName,
+    headerToggled: headerToggled
+  };
+  let interesting = app.debugPending || !prev || continuedChanged || namesChanged ||
+    countChanged || hasNullName || headerToggled;
+  if (!interesting) return;
+  if (headerToggled || continuedChanged || hasNullName) {
+    console.warn('[ZT Captions] pending flash?', info);
+  } else {
+    console.log('[ZT Captions] pending', info);
+  }
+  app._pendingDebugPrev = info;
+}
+
 export function buildEntryNode(doc, e, continued, pending) {
   let item = doc.createElement('div');
   let cls = '__zt-entry';
@@ -77,6 +103,15 @@ export function renderLogItems() {
     }
     if (existing) continue;
     let continued = !e.marker && !e.chat && !!e.name && e.name === app.lastRenderedSpeaker;
+    if (app.debugPending) {
+      console.log('[ZT Captions] settled append', {
+        name: e.name,
+        continued: continued,
+        lastRenderedSpeaker: app.lastRenderedSpeaker,
+        msgStart: (e.msg || '').slice(0, 32),
+        time: e.time
+      });
+    }
     let node = buildEntryNode(doc, e, continued, false);
     node.setAttribute('data-log-index', String(i));
     if (animateNew && !e.marker) {
@@ -103,11 +138,22 @@ export function renderPendingItems() {
 
   let prevName = app.lastRenderedSpeaker;
   let appended = 0;
+  let debugLines = [];
   app.pendingLines.forEach(function (line) {
     if (!line.msg) return;
     let key = makeKey(line.time, line.name, line.msg);
     if (app.seen.has(key)) return;
     let continued = !!line.name && line.name === prevName;
+    debugLines.push({
+      time: line.time,
+      name: line.name,
+      continued: continued,
+      showHeader: !continued,
+      finished: line.finished,
+      msgLen: line.msg.length,
+      msgStart: line.msg.slice(0, 32),
+      key: key
+    });
     app.ui.pendingEl.appendChild(buildEntryNode(doc, {
       key: key,
       time: line.time,
@@ -117,6 +163,18 @@ export function renderPendingItems() {
     prevName = line.name || null;
     appended++;
   });
+  if (debugLines.length) {
+    logPendingDebug({
+      lastRenderedSpeaker: app.lastRenderedSpeaker,
+      lineCount: debugLines.length,
+      continuedSig: debugLines.map(function (l) { return l.continued ? '1' : '0'; }).join(','),
+      nameSig: debugLines.map(function (l) { return l.name || '(null)'; }).join('|'),
+      headerSig: debugLines.map(function (l) { return l.showHeader ? '1' : '0'; }).join(','),
+      lines: debugLines
+    });
+  } else if (app._pendingDebugPrev) {
+    app._pendingDebugPrev = null;
+  }
   if (appended && nearBottom) scrollLogToBottom();
 }
 
