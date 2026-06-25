@@ -69,6 +69,7 @@ export const app = {
   bookmarkDialogCtx: null,
   debugPending: false,
   _pendingDebugPrev: null,
+  debugBookmark: false,
   prevSharers: null,
   boxAttachTimer: null,
   lastPanelWatchAt: 0

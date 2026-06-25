@@ -73,6 +73,11 @@ function boot() {
       app._pendingDebugPrev = null;
       console.info('[ZT Captions] pending debug ' + (app.debugPending ? 'on' : 'off'));
       return app.debugPending;
+    },
+    debugBookmark: function (on) {
+      app.debugBookmark = on !== false;
+      console.info('[ZT Captions] bookmark debug ' + (app.debugBookmark ? 'on' : 'off'));
+      return app.debugBookmark;
     }
   };
 
@@ -117,6 +122,10 @@ function boot() {
       debugPending: function (on) {
         let cap = getWebclientWindow().__ztCaption;
         return cap ? cap.debugPending(on) : false;
+      },
+      debugBookmark: function (on) {
+        let cap = getWebclientWindow().__ztCaption;
+        return cap ? cap.debugBookmark(on) : false;
       }
     };
 
@@ -131,7 +140,7 @@ function boot() {
   } catch (e) { /* iframe not ready yet */ }
   updateUI();
 
-  console.info('[ZT Captions] Ready. Debug with __ztCaption.probe() or __ztCaption.debugPending(true)');
+  console.info('[ZT Captions] Ready. Debug: __ztCaption.probe(), __ztCaption.debugBookmark(true)');
   return window.__ztCaption;
 }
 

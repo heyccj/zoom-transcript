@@ -1,4 +1,4 @@
-/* Bundled at 2026-06-25T18:14:08Z */
+/* Bundled at 2026-06-25T18:41:30Z */
 (() => {
   // src/constants.js
   var POLL_MS = 800;
@@ -181,6 +181,7 @@
     bookmarkDialogCtx: null,
     debugPending: false,
     _pendingDebugPrev: null,
+    debugBookmark: false,
     prevSharers: null,
     boxAttachTimer: null,
     lastPanelWatchAt: 0
@@ -691,6 +692,18 @@
   }
 
   // src/bookmarks.js
+  function logBookmark(tag, info) {
+    if (!app.debugBookmark) return;
+    console.log("[ZT Captions] bookmark " + tag, info);
+  }
+  function warnBookmark(tag, info) {
+    console.warn("[ZT Captions] bookmark " + tag, info);
+  }
+  function describeTarget(el) {
+    if (!el || !el.tagName) return "(none)";
+    let cls = el.className && typeof el.className === "string" ? el.className : "";
+    return el.tagName.toLowerCase() + (cls ? "." + cls.split(/\s+/).slice(0, 2).join(".") : "");
+  }
   function getSpeakerColor(name) {
     if (!name) return app.darkMode ? "#9aa3af" : "#6b7280";
     if (app.speakerColorMap[name] == null) {
@@ -816,6 +829,12 @@
       app.ui.bookmarkBtn.classList.toggle("__zt-btn-icon--active", app.bookmarkMode);
       app.ui.bookmarkBtn.title = app.bookmarkMode ? "Click a name or line to bookmark" : "Add bookmark";
     }
+    console.info("[ZT Captions] bookmark mode " + (app.bookmarkMode ? "on" : "off"));
+    logBookmark("mode", {
+      on: app.bookmarkMode,
+      mountClass: app.ui.mount.className,
+      dialogOpen: !!(app.ui.bookmarkDialog && app.ui.bookmarkDialog.style.display !== "none")
+    });
   }
   function toggleBookmarkMode() {
     setBookmarkMode(!app.bookmarkMode);
@@ -962,8 +981,21 @@
       modeBtn.parentNode.insertBefore(bookmarkBtn, modeBtn);
     }
     if (bookmarkBtn) {
-      bookmarkBtn.onclick = toggleBookmarkMode;
+      bookmarkBtn.onclick = function(ev) {
+        logBookmark("btn click", { defaultPrevented: ev.defaultPrevented });
+        toggleBookmarkMode();
+      };
       shieldFromCaptionDrag(bookmarkBtn);
+      if (!bookmarkBtn.dataset.ztBookmarkDebug) {
+        bookmarkBtn.dataset.ztBookmarkDebug = "1";
+        bookmarkBtn.addEventListener("mousedown", function(ev) {
+          logBookmark("btn mousedown", {
+            button: ev.button,
+            defaultPrevented: ev.defaultPrevented,
+            propagationStopped: ev.cancelBubble
+          });
+        }, false);
+      }
       if (!bookmarkBtn.querySelector(".__zt-bookmark-icon")) setBookmarkBtnIcon(bookmarkBtn, 12);
     }
     let dialog = mount.querySelector("#__zt-bookmark-dialog");
@@ -997,10 +1029,12 @@
     }
     let logEntries = mount.querySelector("#__zt-log-entries");
     if (logEntries) {
-      if (logEntries.dataset.ztBookmarkBound !== "3") {
-        logEntries.dataset.ztBookmarkBound = "3";
+      if (logEntries.dataset.ztBookmarkBound !== "4") {
+        logEntries.dataset.ztBookmarkBound = "4";
         logEntries.addEventListener("click", handleLogBookmarksClick, true);
         logEntries.addEventListener("mousedown", handleLogBookmarksPointer, false);
+        logEntries.addEventListener("mouseup", handleLogBookmarksPointerUp, false);
+        logEntries.addEventListener("selectstart", handleLogBookmarksSelectStart, false);
       }
     }
   }
@@ -1036,7 +1070,41 @@
   function handleLogBookmarksPointer(e) {
     if (e.button !== 0 || !app.bookmarkMode) return;
     if (e.target.closest && e.target.closest(".__zt-entry-bookmark")) return;
+    let row = e.target.closest && e.target.closest(".__zt-entry");
+    let inSettled = !!(row && app.ui && app.ui.settledEl && app.ui.settledEl.contains(row));
+    logBookmark("pointer down", {
+      target: describeTarget(e.target),
+      row: !!row,
+      inSettled,
+      isMarker: !!(row && row.classList.contains(".__zt-entry--marker")),
+      isPending: !!(row && app.ui && app.ui.pendingEl && app.ui.pendingEl.contains(row))
+    });
+    if (!row) {
+      if (app.debugBookmark) warnBookmark("ignored", { reason: "no-entry-row", target: describeTarget(e.target) });
+      return;
+    }
+    if (row.classList.contains(".__zt-entry--marker")) {
+      if (app.debugBookmark) warnBookmark("ignored", { reason: "marker-row", target: describeTarget(e.target) });
+      return;
+    }
+    if (!inSettled) {
+      warnBookmark("ignored", { reason: "not-in-settled-log (pending lines are not bookmarkable)", target: describeTarget(e.target) });
+      return;
+    }
     handleBookmarkPlacementClick(e);
+  }
+  function handleLogBookmarksPointerUp(e) {
+    if (!app.debugBookmark || !app.bookmarkMode || e.button !== 0) return;
+    let sel = (e.view || window).getSelection();
+    logBookmark("pointer up", {
+      target: describeTarget(e.target),
+      selectionText: sel ? sel.toString().slice(0, 80) : "",
+      selectionCollapsed: sel ? sel.isCollapsed : null
+    });
+  }
+  function handleLogBookmarksSelectStart(e) {
+    if (!app.debugBookmark || !app.bookmarkMode) return;
+    logBookmark("selectstart", { target: describeTarget(e.target) });
   }
   function handleBookmarkPlacementClick(e) {
     if (!app.bookmarkMode) return;
@@ -1044,6 +1112,16 @@
     let row = e.target.closest && e.target.closest(".__zt-entry");
     if (!row || row.classList.contains(".__zt-entry--marker")) return;
     if (!app.ui || !app.ui.settledEl || !app.ui.settledEl.contains(row)) return;
+    logBookmark("placement mousedown", {
+      target: describeTarget(e.target),
+      entryKey: row.getAttribute("data-key"),
+      preventDefault: true,
+      stopPropagation: true
+    });
+    warnBookmark("placement \u2014 preventDefault blocks text selection on this click", {
+      target: describeTarget(e.target),
+      entryKey: row.getAttribute("data-key")
+    });
     e.preventDefault();
     e.stopPropagation();
     let entryKey = row.getAttribute("data-key");
@@ -1082,31 +1160,6 @@
   }
 
   // src/render.js
-  function logPendingDebug(info) {
-    let prev = app._pendingDebugPrev;
-    let continuedChanged = prev && prev.continuedSig !== info.continuedSig;
-    let namesChanged = prev && prev.nameSig !== info.nameSig;
-    let countChanged = prev && prev.lineCount !== info.lineCount;
-    let hasNullName = info.lines.some(function(l) {
-      return !l.name && l.msg;
-    });
-    let headerToggled = prev && prev.headerSig !== info.headerSig;
-    info.anomaly = {
-      continuedChanged,
-      namesChanged,
-      countChanged,
-      hasNullName,
-      headerToggled
-    };
-    let interesting = app.debugPending || !prev || continuedChanged || namesChanged || countChanged || hasNullName || headerToggled;
-    if (!interesting) return;
-    if (headerToggled || continuedChanged || hasNullName) {
-      console.warn("[ZT Captions] pending flash?", info);
-    } else {
-      console.log("[ZT Captions] pending", info);
-    }
-    app._pendingDebugPrev = info;
-  }
   function buildEntryNode(doc, e, continued, pending) {
     let item = doc.createElement("div");
     let cls = "__zt-entry";
@@ -1192,22 +1245,11 @@
     if (app.paused || !app.settleTimer || !app.pendingLines || !app.pendingLines.length) return;
     let prevName = app.lastRenderedSpeaker;
     let appended = 0;
-    let debugLines = [];
     app.pendingLines.forEach(function(line) {
       if (!line.msg) return;
       let key = makeKey(line.time, line.name, line.msg);
       if (app.seen.has(key)) return;
       let continued = !!line.name && line.name === prevName;
-      debugLines.push({
-        time: line.time,
-        name: line.name,
-        continued,
-        showHeader: !continued,
-        finished: line.finished,
-        msgLen: line.msg.length,
-        msgStart: line.msg.slice(0, 32),
-        key
-      });
       app.ui.pendingEl.appendChild(buildEntryNode(doc, {
         key,
         time: line.time,
@@ -1217,24 +1259,6 @@
       prevName = line.name || null;
       appended++;
     });
-    if (debugLines.length) {
-      logPendingDebug({
-        lastRenderedSpeaker: app.lastRenderedSpeaker,
-        lineCount: debugLines.length,
-        continuedSig: debugLines.map(function(l) {
-          return l.continued ? "1" : "0";
-        }).join(","),
-        nameSig: debugLines.map(function(l) {
-          return l.name || "(null)";
-        }).join("|"),
-        headerSig: debugLines.map(function(l) {
-          return l.showHeader ? "1" : "0";
-        }).join(","),
-        lines: debugLines
-      });
-    } else if (app._pendingDebugPrev) {
-      app._pendingDebugPrev = null;
-    }
     if (appended && nearBottom) scrollLogToBottom();
   }
   function syncIdle() {
@@ -3252,6 +3276,11 @@
         app._pendingDebugPrev = null;
         console.info("[ZT Captions] pending debug " + (app.debugPending ? "on" : "off"));
         return app.debugPending;
+      },
+      debugBookmark: function(on) {
+        app.debugBookmark = on !== false;
+        console.info("[ZT Captions] bookmark debug " + (app.debugBookmark ? "on" : "off"));
+        return app.debugBookmark;
       }
     };
     if (isParentShell() && document.currentScript) {
@@ -3297,6 +3326,10 @@
         debugPending: function(on) {
           let cap = getWebclientWindow().__ztCaption;
           return cap ? cap.debugPending(on) : false;
+        },
+        debugBookmark: function(on) {
+          let cap = getWebclientWindow().__ztCaption;
+          return cap ? cap.debugBookmark(on) : false;
         }
       };
       console.info("[ZT Captions] Parent shell bootstrap \u2014 recorder runs in #webclient iframe.");
@@ -3309,7 +3342,7 @@
     } catch (e) {
     }
     updateUI();
-    console.info("[ZT Captions] Ready. Debug with __ztCaption.probe() or __ztCaption.debugPending(true)");
+    console.info("[ZT Captions] Ready. Debug: __ztCaption.probe(), __ztCaption.debugBookmark(true)");
     return window.__ztCaption;
   }
   boot();

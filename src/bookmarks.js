@@ -1,6 +1,22 @@
 import { app, keys } from './state.js';
 import { SPEAKER_PALETTE_DARK, SPEAKER_PALETTE_LIGHT } from './constants.js';
 import { shieldInputEvents, shieldFromCaptionDrag } from './utils.js';
+
+function logBookmark(tag, info) {
+  if (!app.debugBookmark) return;
+  console.log('[ZT Captions] bookmark ' + tag, info);
+}
+
+function warnBookmark(tag, info) {
+  console.warn('[ZT Captions] bookmark ' + tag, info);
+}
+
+function describeTarget(el) {
+  if (!el || !el.tagName) return '(none)';
+  let cls = el.className && typeof el.className === 'string' ? el.className : '';
+  return el.tagName.toLowerCase() + (cls ? '.' + cls.split(/\s+/).slice(0, 2).join('.') : '');
+}
+
 export function getSpeakerColor(name) {
   if (!name) return app.darkMode ? '#9aa3af' : '#6b7280';
   if (app.speakerColorMap[name] == null) {
@@ -141,6 +157,12 @@ export function setBookmarkMode(on) {
       ? 'Click a name or line to bookmark'
       : 'Add bookmark';
   }
+  console.info('[ZT Captions] bookmark mode ' + (app.bookmarkMode ? 'on' : 'off'));
+  logBookmark('mode', {
+    on: app.bookmarkMode,
+    mountClass: app.ui.mount.className,
+    dialogOpen: !!(app.ui.bookmarkDialog && app.ui.bookmarkDialog.style.display !== 'none')
+  });
 }
 
 export function toggleBookmarkMode() {
@@ -294,8 +316,21 @@ export function ensureBookmarkWiring(mount, doc) {
     modeBtn.parentNode.insertBefore(bookmarkBtn, modeBtn);
   }
   if (bookmarkBtn) {
-    bookmarkBtn.onclick = toggleBookmarkMode;
+    bookmarkBtn.onclick = function (ev) {
+      logBookmark('btn click', { defaultPrevented: ev.defaultPrevented });
+      toggleBookmarkMode();
+    };
     shieldFromCaptionDrag(bookmarkBtn);
+    if (!bookmarkBtn.dataset.ztBookmarkDebug) {
+      bookmarkBtn.dataset.ztBookmarkDebug = '1';
+      bookmarkBtn.addEventListener('mousedown', function (ev) {
+        logBookmark('btn mousedown', {
+          button: ev.button,
+          defaultPrevented: ev.defaultPrevented,
+          propagationStopped: ev.cancelBubble
+        });
+      }, false);
+    }
     if (!bookmarkBtn.querySelector('.__zt-bookmark-icon')) setBookmarkBtnIcon(bookmarkBtn, 12);
   }
 
@@ -342,10 +377,12 @@ export function ensureBookmarkWiring(mount, doc) {
 
   let logEntries = mount.querySelector('#__zt-log-entries');
   if (logEntries) {
-    if (logEntries.dataset.ztBookmarkBound !== '3') {
-      logEntries.dataset.ztBookmarkBound = '3';
+    if (logEntries.dataset.ztBookmarkBound !== '4') {
+      logEntries.dataset.ztBookmarkBound = '4';
       logEntries.addEventListener('click', handleLogBookmarksClick, true);
       logEntries.addEventListener('mousedown', handleLogBookmarksPointer, false);
+      logEntries.addEventListener('mouseup', handleLogBookmarksPointerUp, false);
+      logEntries.addEventListener('selectstart', handleLogBookmarksSelectStart, false);
     }
   }
 }
@@ -384,7 +421,46 @@ export function handleLogBookmarksClick(e) {
 export function handleLogBookmarksPointer(e) {
   if (e.button !== 0 || !app.bookmarkMode) return;
   if (e.target.closest && e.target.closest('.__zt-entry-bookmark')) return;
+
+  let row = e.target.closest && e.target.closest('.__zt-entry');
+  let inSettled = !!(row && app.ui && app.ui.settledEl && app.ui.settledEl.contains(row));
+  logBookmark('pointer down', {
+    target: describeTarget(e.target),
+    row: !!row,
+    inSettled: inSettled,
+    isMarker: !!(row && row.classList.contains('.__zt-entry--marker')),
+    isPending: !!(row && app.ui && app.ui.pendingEl && app.ui.pendingEl.contains(row))
+  });
+
+  if (!row) {
+    if (app.debugBookmark) warnBookmark('ignored', { reason: 'no-entry-row', target: describeTarget(e.target) });
+    return;
+  }
+  if (row.classList.contains('.__zt-entry--marker')) {
+    if (app.debugBookmark) warnBookmark('ignored', { reason: 'marker-row', target: describeTarget(e.target) });
+    return;
+  }
+  if (!inSettled) {
+    warnBookmark('ignored', { reason: 'not-in-settled-log (pending lines are not bookmarkable)', target: describeTarget(e.target) });
+    return;
+  }
+
   handleBookmarkPlacementClick(e);
+}
+
+export function handleLogBookmarksPointerUp(e) {
+  if (!app.debugBookmark || !app.bookmarkMode || e.button !== 0) return;
+  let sel = (e.view || window).getSelection();
+  logBookmark('pointer up', {
+    target: describeTarget(e.target),
+    selectionText: sel ? sel.toString().slice(0, 80) : '',
+    selectionCollapsed: sel ? sel.isCollapsed : null
+  });
+}
+
+export function handleLogBookmarksSelectStart(e) {
+  if (!app.debugBookmark || !app.bookmarkMode) return;
+  logBookmark('selectstart', { target: describeTarget(e.target) });
 }
 
 export function handleBookmarkPlacementClick(e) {
@@ -394,6 +470,16 @@ export function handleBookmarkPlacementClick(e) {
   if (!row || row.classList.contains('.__zt-entry--marker')) return;
   if (!app.ui || !app.ui.settledEl || !app.ui.settledEl.contains(row)) return;
 
+  logBookmark('placement mousedown', {
+    target: describeTarget(e.target),
+    entryKey: row.getAttribute('data-key'),
+    preventDefault: true,
+    stopPropagation: true
+  });
+  warnBookmark('placement — preventDefault blocks text selection on this click', {
+    target: describeTarget(e.target),
+    entryKey: row.getAttribute('data-key')
+  });
   e.preventDefault();
   e.stopPropagation();
 

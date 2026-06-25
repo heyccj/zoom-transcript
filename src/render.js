@@ -5,6 +5,8 @@ import { getSpeakerColor, syncBookmarkMarkers } from './bookmarks.js';
 import { updatePill } from './controls.js';
 
 function logPendingDebug(info) {
+  // Disabled — use __ztCaption.debugPending(true) to re-enable.
+  if (!app.debugPending) return;
   let prev = app._pendingDebugPrev;
   let continuedChanged = prev && prev.continuedSig !== info.continuedSig;
   let namesChanged = prev && prev.nameSig !== info.nameSig;
@@ -18,7 +20,7 @@ function logPendingDebug(info) {
     hasNullName: hasNullName,
     headerToggled: headerToggled
   };
-  let interesting = app.debugPending || !prev || continuedChanged || namesChanged ||
+  let interesting = !prev || continuedChanged || namesChanged ||
     countChanged || hasNullName || headerToggled;
   if (!interesting) return;
   if (headerToggled || continuedChanged || hasNullName) {
@@ -138,22 +140,11 @@ export function renderPendingItems() {
 
   let prevName = app.lastRenderedSpeaker;
   let appended = 0;
-  let debugLines = [];
   app.pendingLines.forEach(function (line) {
     if (!line.msg) return;
     let key = makeKey(line.time, line.name, line.msg);
     if (app.seen.has(key)) return;
     let continued = !!line.name && line.name === prevName;
-    debugLines.push({
-      time: line.time,
-      name: line.name,
-      continued: continued,
-      showHeader: !continued,
-      finished: line.finished,
-      msgLen: line.msg.length,
-      msgStart: line.msg.slice(0, 32),
-      key: key
-    });
     app.ui.pendingEl.appendChild(buildEntryNode(doc, {
       key: key,
       time: line.time,
@@ -163,18 +154,6 @@ export function renderPendingItems() {
     prevName = line.name || null;
     appended++;
   });
-  if (debugLines.length) {
-    logPendingDebug({
-      lastRenderedSpeaker: app.lastRenderedSpeaker,
-      lineCount: debugLines.length,
-      continuedSig: debugLines.map(function (l) { return l.continued ? '1' : '0'; }).join(','),
-      nameSig: debugLines.map(function (l) { return l.name || '(null)'; }).join('|'),
-      headerSig: debugLines.map(function (l) { return l.showHeader ? '1' : '0'; }).join(','),
-      lines: debugLines
-    });
-  } else if (app._pendingDebugPrev) {
-    app._pendingDebugPrev = null;
-  }
   if (appended && nearBottom) scrollLogToBottom();
 }
 
