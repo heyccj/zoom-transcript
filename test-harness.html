@@ -11,6 +11,27 @@
 <body>
 <div id="root"><div class="note">Fake Zoom meeting — harness feeds captions through a fake Redux store.</div></div>
 
+<!-- Zoom 2026 overlay caption markup (idle-hidden, subtitle display:none) -->
+<div class="live-transcription-subtitle__overlay-container live-transcription-subtitle__overlay-container--hidden react-draggable" style="position: fixed; touch-action: none; bottom: 68px; left: 40px;">
+  <div class="live-transcription-subtitle__frame">
+    <div class="live-transcription-subtitle__controls">
+      <button class="live-transcription-subtitle__settings-btn" aria-label="Caption Language">⚙</button>
+    </div>
+    <div class="live-transcription-subtitle__box live-transcription-subtitle__box--overlay" style="width: 320px; height: 364px;">
+      <div class="live-transcription-subtitle__content live-transcription-subtitle__drag-handle">
+        <div id="live-transcription-subtitle" style="display: none;">
+          <span dir="auto" class="live-transcription-subtitle__item">Hello, can you hear me? These are my captions.</span>
+        </div>
+      </div>
+      <div class="live-transcription-subtitle__overlay-corner-icons" aria-hidden="true">corner-icons</div>
+    </div>
+  </div>
+</div>
+<style>
+  /* Mimic Zoom's idle-hide so the fix (forcing visibility) is exercised */
+  .live-transcription-subtitle__overlay-container--hidden { visibility: hidden; opacity: 0; pointer-events: none; }
+</style>
+
 <script>
   // ── Fake Redux store the recorder will discover via the fake fiber ──
   var state = {

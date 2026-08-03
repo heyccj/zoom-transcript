@@ -1,4 +1,4 @@
-/* Bundled at 2026-06-25T18:47:24Z */
+/* Bundled at 2026-08-03T17:05:53Z */
 (() => {
   // src/constants.js
   var POLL_MS = 800;
@@ -522,6 +522,7 @@
   function captionsVisible(doc) {
     let sub = doc.getElementById("live-transcription-subtitle");
     if (!sub) return false;
+    if (sub.closest(".live-transcription-subtitle__overlay-container")) return true;
     if (sub.style.display === "none") return false;
     let box = sub.closest(".live-transcription-subtitle__box");
     if (box && box.style.display === "none") return false;
@@ -1754,8 +1755,26 @@
       display: flex !important;
       visibility: visible !important;
       opacity: 1 !important;
+      /* New overlay layout sets a fixed inline height on the box; let our
+         panel size it instead so the log isn't clipped. */
+      height: auto !important;
+      min-height: 0 !important;
+      max-height: none !important;
     }
     .live-transcription-subtitle__box:has(.__zt-caption-mount) [id="live-transcription-subtitle"] {
+      display: none !important;
+    }
+    /* New overlay layout: Zoom idle-hides the draggable caption container
+       with a --hidden modifier. Keep it (and our panel inside) visible. */
+    .live-transcription-subtitle__overlay-container:has(.__zt-caption-mount) {
+      visibility: visible !important;
+      opacity: 1 !important;
+      pointer-events: auto !important;
+    }
+    .live-transcription-subtitle__overlay-container--hidden:has(.__zt-caption-mount) {
+      display: block !important;
+    }
+    .live-transcription-subtitle__box:has(.__zt-caption-mount) .live-transcription-subtitle__overlay-corner-icons {
       display: none !important;
     }
     .__zt-caption-dock {
@@ -3002,6 +3021,13 @@
       wrap.style.setProperty("display", "block", "important");
       wrap.style.setProperty("visibility", "visible", "important");
     }
+    let overlay = box.closest(".live-transcription-subtitle__overlay-container");
+    if (overlay) {
+      overlay.classList.remove("live-transcription-subtitle__overlay-container--hidden");
+      overlay.style.setProperty("visibility", "visible", "important");
+      overlay.style.setProperty("opacity", "1", "important");
+      overlay.style.setProperty("pointer-events", "auto", "important");
+    }
   }
   function ensurePinDock(doc) {
     ensureStyles(doc);
@@ -3062,7 +3088,9 @@
       if (pill.parentElement !== box) box.appendChild(pill);
       dock.style.display = "none";
       usingBox = true;
-      if (box.style.bottom) dock.style.bottom = box.style.bottom;
+      let overlay = box.closest(".live-transcription-subtitle__overlay-container");
+      let bottom = box.style.bottom || overlay && overlay.style.bottom;
+      if (bottom) dock.style.bottom = bottom;
       if (!app.attachBoxLogged) {
         app.attachBoxLogged = true;
         console.info("[ZT Captions] Attached inside caption box.");

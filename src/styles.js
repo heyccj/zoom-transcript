@@ -219,8 +219,26 @@ export function ensureStyles(doc) {
       display: flex !important;
       visibility: visible !important;
       opacity: 1 !important;
+      /* New overlay layout sets a fixed inline height on the box; let our
+         panel size it instead so the log isn't clipped. */
+      height: auto !important;
+      min-height: 0 !important;
+      max-height: none !important;
     }
     .live-transcription-subtitle__box:has(.__zt-caption-mount) [id="live-transcription-subtitle"] {
+      display: none !important;
+    }
+    /* New overlay layout: Zoom idle-hides the draggable caption container
+       with a --hidden modifier. Keep it (and our panel inside) visible. */
+    .live-transcription-subtitle__overlay-container:has(.__zt-caption-mount) {
+      visibility: visible !important;
+      opacity: 1 !important;
+      pointer-events: auto !important;
+    }
+    .live-transcription-subtitle__overlay-container--hidden:has(.__zt-caption-mount) {
+      display: block !important;
+    }
+    .live-transcription-subtitle__box:has(.__zt-caption-mount) .live-transcription-subtitle__overlay-corner-icons {
       display: none !important;
     }
     .__zt-caption-dock {

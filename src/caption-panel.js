@@ -16,12 +16,19 @@ export function findCaptionBox(doc) {
 }
 
 export function findCaptionHost(doc) {
-  return findCaptionBox(doc) || doc.querySelector('.lt-subtitle-wrap');
+  return findCaptionBox(doc) ||
+    doc.querySelector('.live-transcription-subtitle__overlay-container') ||
+    doc.querySelector('.lt-subtitle-wrap');
 }
 
 export function captionsVisible(doc) {
   let sub = doc.getElementById('live-transcription-subtitle');
   if (!sub) return false;
+  // New overlay layout (2026): the subtitle node only exists while captions
+  // are enabled, but Zoom idle-hides it (display:none on the subtitle plus a
+  // --hidden modifier on the overlay container). Presence inside the overlay
+  // container means captions are on — don't keep clicking Show Captions.
+  if (sub.closest('.live-transcription-subtitle__overlay-container')) return true;
   if (sub.style.display === 'none') return false;
   let box = sub.closest('.live-transcription-subtitle__box');
   if (box && box.style.display === 'none') return false;

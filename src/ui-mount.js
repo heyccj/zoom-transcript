@@ -138,6 +138,17 @@ export function keepCaptionBoxVisible(doc, box) {
     wrap.style.setProperty('display', 'block', 'important');
     wrap.style.setProperty('visibility', 'visible', 'important');
   }
+
+  // New overlay layout: Zoom idle-hides the whole draggable container via a
+  // --hidden modifier. Inline styles here give an immediate un-hide; the
+  // :has() rules in styles.js keep it visible across React re-renders.
+  let overlay = box.closest('.live-transcription-subtitle__overlay-container');
+  if (overlay) {
+    overlay.classList.remove('live-transcription-subtitle__overlay-container--hidden');
+    overlay.style.setProperty('visibility', 'visible', 'important');
+    overlay.style.setProperty('opacity', '1', 'important');
+    overlay.style.setProperty('pointer-events', 'auto', 'important');
+  }
 }
 
 export function ensurePinDock(doc) {
@@ -208,7 +219,9 @@ export function attachMount(doc) {
     dock.style.display = 'none';
     usingBox = true;
 
-    if (box.style.bottom) dock.style.bottom = box.style.bottom;
+    let overlay = box.closest('.live-transcription-subtitle__overlay-container');
+    let bottom = box.style.bottom || (overlay && overlay.style.bottom);
+    if (bottom) dock.style.bottom = bottom;
 
     if (!app.attachBoxLogged) {
       app.attachBoxLogged = true;
