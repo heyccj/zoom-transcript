@@ -1,4 +1,4 @@
-/* Bundled at 2026-08-03T17:05:53Z */
+/* Bundled at 2026-08-25T16:53:06Z */
 (() => {
   // src/constants.js
   var POLL_MS = 800;
@@ -16,7 +16,7 @@
   // src/dedup.js
   function isOneShotSystemMessage(msg) {
     if (!msg) return false;
-    return /\bjoined as a guest\b/i.test(msg) || /\bjoined the (meeting|webinar)\b/i.test(msg) || /\bleft the (meeting|webinar)\b/i.test(msg) || /\bmeeting group chat\b/i.test(msg) || /\bmessages addressed to\b/i.test(msg);
+    return /\bjoined as a guest\b/i.test(msg) || /\bjoined the (meeting|webinar)\b/i.test(msg) || /\bleft the (meeting|webinar)\b/i.test(msg) || /^.+\s(left|joined)$/i.test(msg) || /\bmeeting group chat\b/i.test(msg) || /\bmessages addressed to\b/i.test(msg);
   }
   function makeKey(time, name, msg) {
     msg = msg || "";

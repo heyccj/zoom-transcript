@@ -1,8 +1,11 @@
 export function isOneShotSystemMessage(msg) {
   if (!msg) return false;
+  // Bare "{Name} left" / "{Name} joined" — Zoom keeps these in chat state
+  // without stable IDs (Fathom Notetaker, etc.) and they spam every poll.
   return /\bjoined as a guest\b/i.test(msg) ||
     /\bjoined the (meeting|webinar)\b/i.test(msg) ||
     /\bleft the (meeting|webinar)\b/i.test(msg) ||
+    /^.+\s(left|joined)$/i.test(msg) ||
     /\bmeeting group chat\b/i.test(msg) ||
     /\bmessages addressed to\b/i.test(msg);
 }
