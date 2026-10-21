@@ -1,0 +1,8 @@
+{
+  "apiKey": "sk-ant-your-key-here",
+  "model": "claude-haiku-4-5",
+  "myName": "Chris Norman",
+  "suggestIntervalMs": 8000,
+  "maxTokens": 300,
+  "port": 7399
+}

@@ -140,6 +140,10 @@ export function updateUI() {
 
   app.ui.dot.className = '__zt-dot ' + dotStateClass();
 
+  if (app.ui.copilotBadge) {
+    app.ui.copilotBadge.style.display = app.copilotConnected ? '' : 'none';
+  }
+
   app.ui.pausedBanner.style.display = app.paused ? 'flex' : 'none';
   app.ui.logEntriesEl.classList.toggle('__zt-log--paused', app.paused);
   if (app.paused) {

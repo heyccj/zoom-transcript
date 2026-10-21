@@ -52,7 +52,12 @@ function boot() {
         captionDockVisible: !!(function () {
           let d = app.wcWin.document.getElementById('__zt-caption-dock');
           return d && d.style.display !== 'none';
-        })()
+        })(),
+        copilot: {
+          connected: app.copilotConnected,
+          sentEntries: app.copilotSentCount,
+          lastTryAt: app.copilotLastTryAt ? new Date(app.copilotLastTryAt).toISOString() : null
+        }
       };
       if (found) {
         try {

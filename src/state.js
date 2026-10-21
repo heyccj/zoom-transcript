@@ -72,7 +72,12 @@ export const app = {
   debugBookmark: false,
   prevSharers: null,
   boxAttachTimer: null,
-  lastPanelWatchAt: 0
+  lastPanelWatchAt: 0,
+  copilotSentCount: 0,
+  copilotConnected: false,
+  copilotLastTryAt: 0,
+  copilotPendingSnapshot: '',
+  copilotAnnounced: false
 };
 
 export function initAppState() {

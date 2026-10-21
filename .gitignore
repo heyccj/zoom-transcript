@@ -1,1 +1,4 @@
 node_modules/
+copilot/config.json
+copilot/brief.json
+copilot/transcripts/

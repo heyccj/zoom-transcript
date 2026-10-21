@@ -1,4 +1,4 @@
-/* Bundled at 2026-08-25T16:53:06Z */
+/* Bundled at 2026-10-21T20:01:08Z */
 (() => {
   // src/constants.js
   var POLL_MS = 800;
@@ -184,7 +184,12 @@
     debugBookmark: false,
     prevSharers: null,
     boxAttachTimer: null,
-    lastPanelWatchAt: 0
+    lastPanelWatchAt: 0,
+    copilotSentCount: 0,
+    copilotConnected: false,
+    copilotLastTryAt: 0,
+    copilotPendingSnapshot: "",
+    copilotAnnounced: false
   };
   function initAppState() {
     app.wcWin = getWebclientWindow();
@@ -1387,6 +1392,106 @@
     if (app.collapsed) updatePill();
   }
 
+  // src/copilot-relay.js
+  var COPILOT_BASE = "http://localhost:7399";
+  var RETRY_MS = 15e3;
+  var HEARTBEAT_MS = 1e4;
+  var POST_TIMEOUT_MS = 2500;
+  var inFlight = false;
+  var dirty = false;
+  var warnedOnce = false;
+  function entryPayload(e) {
+    return {
+      key: e.key,
+      time: e.time || "",
+      name: e.name || null,
+      msg: e.msg,
+      chat: !!e.chat,
+      marker: !!e.marker
+    };
+  }
+  function pendingPayload() {
+    if (app.paused || !app.pendingLines || !app.pendingLines.length) return [];
+    let rows = [];
+    app.pendingLines.forEach(function(l) {
+      if (!l || !l.msg) return;
+      if (app.seen.has(makeKey(l.time, l.name, l.msg))) return;
+      rows.push({ time: l.time || "", name: l.name || null, msg: l.msg });
+    });
+    return rows;
+  }
+  function relayToCopilot() {
+    if (inFlight) {
+      dirty = true;
+      return;
+    }
+    if (!app.copilotConnected && app.copilotLastTryAt && Date.now() - app.copilotLastTryAt < RETRY_MS) {
+      return;
+    }
+    if (app.copilotSentCount > app.log.length) app.copilotSentCount = app.log.length;
+    let newEntries = app.log.slice(app.copilotSentCount);
+    let pending = pendingPayload();
+    let pendingSnapshot = JSON.stringify(pending);
+    let pendingChanged = pendingSnapshot !== app.copilotPendingSnapshot;
+    if (!newEntries.length && !pendingChanged && app.copilotConnected && Date.now() - app.copilotLastTryAt < HEARTBEAT_MS) {
+      return;
+    }
+    let sentUpTo = app.log.length;
+    let body = JSON.stringify({
+      meetingId: keys.meetingId,
+      session: app.sessionName || null,
+      entries: newEntries.map(entryPayload),
+      pending
+    });
+    inFlight = true;
+    app.copilotLastTryAt = Date.now();
+    let ctrl = new AbortController();
+    let timer = setTimeout(function() {
+      ctrl.abort();
+    }, POST_TIMEOUT_MS);
+    fetch(COPILOT_BASE + "/ingest", {
+      method: "POST",
+      // text/plain keeps this a CORS "simple request" (no preflight).
+      headers: { "Content-Type": "text/plain" },
+      body,
+      signal: ctrl.signal
+    }).then(function(r) {
+      return r.json();
+    }).then(function(resp) {
+      clearTimeout(timer);
+      inFlight = false;
+      app.copilotConnected = true;
+      app.copilotSentCount = sentUpTo;
+      app.copilotPendingSnapshot = pendingSnapshot;
+      warnedOnce = false;
+      if (resp && typeof resp.have === "number" && resp.have < app.copilotSentCount) {
+        app.copilotSentCount = 0;
+        dirty = true;
+      }
+      if (!app.copilotAnnounced) {
+        app.copilotAnnounced = true;
+        console.info("[ZT Captions] Copilot connected \u2014 transcript streaming to " + COPILOT_BASE);
+      }
+      if (dirty) {
+        dirty = false;
+        relayToCopilot();
+      }
+    }).catch(function() {
+      clearTimeout(timer);
+      inFlight = false;
+      dirty = false;
+      if (app.copilotConnected) {
+        console.info("[ZT Captions] Copilot server connection lost \u2014 will keep retrying.");
+        app.copilotAnnounced = false;
+      }
+      app.copilotConnected = false;
+      if (!warnedOnce) {
+        warnedOnce = true;
+        console.info("[ZT Captions] Copilot server not running (optional \u2014 `npm run copilot` enables AI suggestions).");
+      }
+    });
+  }
+
   // src/ingest.js
   function persistLog() {
     app.log = dedupLog(app.log);
@@ -1397,6 +1502,7 @@
       localStorage.setItem(keys.storageKey, JSON.stringify(app.log));
     }
     updateUI();
+    relayToCopilot();
   }
   function ingestLines(lines) {
     if (app.paused) return 0;
@@ -1532,6 +1638,7 @@
       }
     }
     if (app.store) updateUI();
+    relayToCopilot();
   }
 
   // src/styles.js
@@ -1843,6 +1950,18 @@
       font-size: 11px;
       font-variant-numeric: tabular-nums;
       white-space: nowrap;
+    }
+    .__zt-copilot-badge {
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      color: #22c55e;
+      border: 1px solid rgba(34,197,94,0.4);
+      background: rgba(34,197,94,0.08);
+      border-radius: 4px;
+      padding: 1px 4px;
+      line-height: 1.3;
+      flex-shrink: 0;
     }
     .__zt-btn-icon {
       background: var(--zt-icon-btn-bg);
@@ -2647,6 +2766,8 @@
     app.speakerStats = {};
     app.prevSharers = null;
     app.elapsedStart = null;
+    app.copilotSentCount = 0;
+    app.copilotPendingSnapshot = "";
     if (app.elapsedTimer) {
       clearInterval(app.elapsedTimer);
       app.elapsedTimer = null;
@@ -2715,6 +2836,8 @@
     app.prevSharers = null;
     app.elapsedStart = null;
     app.pendingLines = null;
+    app.copilotSentCount = 0;
+    app.copilotPendingSnapshot = "";
     localStorage.removeItem(keys.storageKey);
     localStorage.removeItem(keys.meetingKey);
     localStorage.removeItem(keys.autoDownloadKey);
@@ -2758,6 +2881,7 @@
     app.ui.dock = dock;
     app.ui.dot = mount.querySelector("#__zt-dot");
     app.ui.timerEl = mount.querySelector("#__zt-timer");
+    app.ui.copilotBadge = mount.querySelector("#__zt-copilot-badge");
     app.ui.modeBtn = mount.querySelector("#__zt-mode-btn");
     app.ui.bookmarkBtn = mount.querySelector("#__zt-bookmark-btn");
     app.ui.bookmarkDialog = mount.querySelector("#__zt-bookmark-dialog");
@@ -2911,6 +3035,7 @@
       '<div id="__zt-dot" class="__zt-dot __zt-dot--waiting"></div>',
       '<div id="__zt-session-name" class="__zt-session-name" title="Click to name this meeting"></div>',
       '<div class="__zt-meta">',
+      '<span id="__zt-copilot-badge" class="__zt-copilot-badge" style="display:none" title="AI copilot connected (localhost:7399)">AI</span>',
       '<span id="__zt-timer" class="__zt-timer">0:00</span>',
       "</div>",
       '<button id="__zt-bookmark-btn" class="__zt-btn-icon" type="button" title="Add bookmark">' + bookmarkIconHtml(12) + "</button>",
@@ -3248,6 +3373,9 @@
     watchCaptionPanel();
     if (!app.ui || !app.ui.mount || !app.ui.dot) return;
     app.ui.dot.className = "__zt-dot " + dotStateClass();
+    if (app.ui.copilotBadge) {
+      app.ui.copilotBadge.style.display = app.copilotConnected ? "" : "none";
+    }
     app.ui.pausedBanner.style.display = app.paused ? "flex" : "none";
     app.ui.logEntriesEl.classList.toggle("__zt-log--paused", app.paused);
     if (app.paused) {
@@ -3332,7 +3460,12 @@
           captionDockVisible: !!(function() {
             let d = app.wcWin.document.getElementById("__zt-caption-dock");
             return d && d.style.display !== "none";
-          })()
+          })(),
+          copilot: {
+            connected: app.copilotConnected,
+            sentEntries: app.copilotSentCount,
+            lastTryAt: app.copilotLastTryAt ? new Date(app.copilotLastTryAt).toISOString() : null
+          }
         };
         if (found) {
           try {

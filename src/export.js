@@ -299,6 +299,8 @@ export function resetLog() {
   app.speakerStats = {};
   app.prevSharers = null;
   app.elapsedStart = null;
+  app.copilotSentCount = 0;
+  app.copilotPendingSnapshot = '';
   if (app.elapsedTimer) {
     clearInterval(app.elapsedTimer);
     app.elapsedTimer = null;

@@ -308,6 +308,18 @@ export function ensureStyles(doc) {
       font-variant-numeric: tabular-nums;
       white-space: nowrap;
     }
+    .__zt-copilot-badge {
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      color: #22c55e;
+      border: 1px solid rgba(34,197,94,0.4);
+      background: rgba(34,197,94,0.08);
+      border-radius: 4px;
+      padding: 1px 4px;
+      line-height: 1.3;
+      flex-shrink: 0;
+    }
     .__zt-btn-icon {
       background: var(--zt-icon-btn-bg);
       border: 1px solid var(--zt-icon-btn-border);
