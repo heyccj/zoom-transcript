@@ -26,6 +26,7 @@ export function createMount(doc) {
       '<div id="__zt-dot" class="__zt-dot __zt-dot--waiting"></div>',
       '<div id="__zt-session-name" class="__zt-session-name" title="Click to name this meeting"></div>',
       '<div class="__zt-meta">',
+        '<span id="__zt-copilot-badge" class="__zt-copilot-badge" style="display:none" title="AI copilot connected (localhost:7399)">AI</span>',
         '<span id="__zt-timer" class="__zt-timer">0:00</span>',
       '</div>',
       '<button id="__zt-bookmark-btn" class="__zt-btn-icon" type="button" title="Add bookmark">' + bookmarkIconHtml(12) + '</button>',

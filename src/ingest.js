@@ -8,6 +8,7 @@ import { dedupLog } from './dedup.js';
 import { tryInjectIntoIframe } from './inject.js';
 import { updateUI } from './controls.js';
 import { startElapsed } from './render.js';
+import { relayToCopilot } from './copilot-relay.js';
 export function persistLog() {
   app.log = dedupLog(app.log);
   remapBookmarkKeys();
@@ -17,6 +18,7 @@ export function persistLog() {
     localStorage.setItem(keys.storageKey, JSON.stringify(app.log));
   }
   updateUI();
+  relayToCopilot();
 }
 
 export function ingestLines(lines) {
@@ -171,4 +173,8 @@ export function pollStore() {
   }
 
   if (app.store) updateUI();
+  // Pipe in-flight captions (and heartbeats) to the local copilot app every
+  // tick — Zoom can hold lines in "pending" for minutes before settling, so
+  // this is the real-time feed the AI runs on.
+  relayToCopilot();
 }

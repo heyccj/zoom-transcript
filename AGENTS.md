@@ -80,6 +80,9 @@ All styles injected via `ensureStyles(doc)` in `styles.js`. Class prefix: `__zt-
 | iframe inject | `inject.js`, `meeting.js` |
 | Boot, debug API | `index.js` |
 | Event propagation fixes | `utils.js` |
+| Copilot relay (transcript → localhost) | `copilot-relay.js` |
+| Copilot server + AI suggestions | `copilot/server.js` (not bundled) |
+| Copilot page UI | `copilot/public/index.html` (not bundled) |
 
 ## Conventions
 
@@ -141,6 +144,16 @@ Changes to `__ztCaption` API must be mirrored in both the webclient boot object 
 ### 7. Rendered log incremental counter
 
 `app.renderedLogCount` tracks how many `app.log` entries are in the DOM. Reset it when clearing `settledEl` (theme toggle, shutdown). Forgetting this causes skipped or duplicate DOM nodes.
+
+## Copilot companion app (`copilot/`)
+
+Optional localhost sidecar (`npm run copilot` → `http://localhost:7399`) that receives the live transcript and shows AI suggestions on a second screen. **Zero npm deps** (Node 18+ built-ins only) — same rule as the bundle.
+
+- `src/copilot-relay.js` fires from `pollStore` (pending captions, heartbeats) and `persistLog` (settled entries). Entirely fire-and-forget; if the server is down the recorder is unaffected. Uses `Content-Type: text/plain` to stay a CORS simple request.
+- Server dedupes by entry key, so re-sending is always safe. `/ingest` replies `{have: n}`; the relay resends everything when the server restarts mid-meeting.
+- Settled lines are backed up to `copilot/transcripts/` as they arrive.
+- AI calls (Anthropic, streaming + prompt caching) need `copilot/config.json` (gitignored — see `config.example.json`) or `ANTHROPIC_API_KEY`. The settled-transcript prompt block must stay **append-only** or prompt caching breaks.
+- Testing without Zoom: `npm run copilot`, serve the repo (`python3 -m http.server 7400`), open `test-harness.html` — captions flow end-to-end.
 
 ## Entry key formats
 

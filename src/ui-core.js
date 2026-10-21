@@ -61,6 +61,8 @@ export function shutdown() {
   app.prevSharers = null;
   app.elapsedStart = null;
   app.pendingLines = null;
+  app.copilotSentCount = 0;
+  app.copilotPendingSnapshot = '';
   localStorage.removeItem(keys.storageKey);
   localStorage.removeItem(keys.meetingKey);
   localStorage.removeItem(keys.autoDownloadKey);
@@ -106,6 +108,7 @@ export function ensureUiRefs(doc) {
   app.ui.dock = dock;
   app.ui.dot = mount.querySelector('#__zt-dot');
   app.ui.timerEl = mount.querySelector('#__zt-timer');
+  app.ui.copilotBadge = mount.querySelector('#__zt-copilot-badge');
   app.ui.modeBtn = mount.querySelector('#__zt-mode-btn');
   app.ui.bookmarkBtn = mount.querySelector('#__zt-bookmark-btn');
   app.ui.bookmarkDialog = mount.querySelector('#__zt-bookmark-dialog');
