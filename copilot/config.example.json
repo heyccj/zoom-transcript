@@ -1,8 +1,16 @@
 {
   "apiKey": "sk-ant-your-key-here",
-  "model": "claude-haiku-4-5",
+  "model": "claude-haiku-5-5",
+  "effort": "low",
   "myName": "Chris Norman",
-  "suggestIntervalMs": 8000,
+  "suggestIntervalMs": 20000,
+  "minNewWords": 30,
+  "suggestCooldownMs": 45000,
+  "repeatWindowMs": 600000,
   "maxTokens": 300,
-  "port": 7399
+  "port": 7399,
+  "vaultPath": "",
+  "vaultExclude": [],
+  "vaultAliases": {},
+  "vaultPeople": {}
 }

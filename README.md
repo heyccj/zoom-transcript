@@ -1,6 +1,6 @@
 # ZT Captions (zoom-transcript)
 
-A Zoom web client bookmarklet that captures live captions and meeting chat into a searchable transcript with speaker names, timestamps, bookmarks, and export.
+A Zoom web client bookmarklet that captures live captions and meeting chat into a searchable transcript with speaker names, timestamps, bookmarks, and export. An optional localhost companion (**ZT Copilot**) can receive that live transcript and show AI suggestions on a second screen.
 
 ZT Captions does not run its own transcription. It reads Zoom's native closed-captioning and chat from the web client's Redux store, then saves and organizes the text in a panel attached to Zoom's caption box.
 
@@ -14,6 +14,23 @@ npm run watch    # rebuild on change
 
 The deliverable is `zoom-transcript.js` — a single IIFE loaded by the bookmarklet from jsDelivr. Each build prepends a UTC timestamp comment for cache debugging.
 
+### AI copilot (optional)
+
+A separate zero-dependency Node server on your machine. The bookmarklet still records and downloads as before; if this server is not running, nothing changes.
+
+```bash
+cp copilot/config.example.json copilot/config.json   # then add your Anthropic key + your speaker name
+npm run copilot                                      # http://localhost:7399
+```
+
+Open that URL on a second monitor, paste a meeting brief (objectives / notes), then click the bookmarklet in Zoom. A green **AI** badge in the recorder header means the transcript is flowing to the copilot. An **On you** list (questions aimed at you, things proposed to you, things you committed to) and occasional suggestion cards appear on the copilot page; `act-now` items can fire a macOS notification.
+
+`copilot/config.json` is gitignored. Without a key, the page still shows the live feed and writes a transcript backup to `copilot/transcripts/`.
+
+Optional: set `vaultPath` in `config.json` to a notes folder with `projects/<slug>/_PROJECT.md` files, and the copilot reads a project's note when it comes up in the brief or the conversation. It also reads your 1:1 notes on a colleague when they speak, and any notes the brief lists on a `NOTES:` line (for example a prep note or career plan). Files that look like credentials are never read. Chips under the header show which notes it's using. Before a meeting, **Copy prep prompt** gives you a prompt to paste into Claude Code in that folder; it drafts the brief and sends it straight to the copilot.
+
+Optional: `cp copilot/profile.example.md copilot/profile.md` and describe your role, team, and what is (and isn't) worth a nudge. It's gitignored and goes into every prompt.
+
 ## How it runs in Zoom
 
 1. User clicks the bookmarklet on a Zoom meeting page.
@@ -25,7 +42,7 @@ The deliverable is `zoom-transcript.js` — a single IIFE loaded by the bookmark
 ### Debug API (browser console)
 
 ```js
-__ztCaption.probe()              // Redux store, line count, attachment status
+__ztCaption.probe()              // Redux store, line count, attachment status, copilot connectivity
 __ztCaption.getLog()             // current transcript array
 __ztCaption.debugPending(true)   // verbose pending-render logs (name flash debugging)
 ```
@@ -34,8 +51,13 @@ __ztCaption.debugPending(true)   // verbose pending-render logs (name flash debu
 
 ```
 zoom-transcript/
-├── src/                  # ES module source (edit these)
+├── src/                    # ES module source (edit these)
 ├── zoom-transcript.js      # bundled output (commit + deploy this)
+├── copilot/                # localhost AI companion (not bundled)
+│   ├── server.js
+│   ├── public/index.html
+│   ├── config.example.json # copy to config.json (gitignored)
+│   └── profile.example.md  # copy to profile.md (gitignored, optional)
 ├── index.html              # marketing site + bookmarklet snippet
 ├── test-harness.html       # local UI testing without Zoom
 ├── package.json
@@ -65,7 +87,7 @@ zoom-transcript/
 
 | File | Purpose |
 |------|---------|
-| `src/ingest.js` | Core poll loop (`pollStore`). Ingests settled captions, immediate chat, share-event markers, and pause markers. Persists log to localStorage. |
+| `src/ingest.js` | Core poll loop (`pollStore`). Ingests settled captions, immediate chat, share-event markers, and pause markers. Persists log to localStorage. Relays to the copilot after persist and on every poll tick. |
 | `src/dedup.js` | Log entry keys (`makeKey`), progressive caption merging, one-shot system message detection (join/leave notices, Team Chat boilerplate), `dedupLog()`. |
 
 ### UI
@@ -85,6 +107,7 @@ zoom-transcript/
 | `src/bookmarks.js` | Bookmark add/edit/remove, speaker colors, speaker stats, bookmark mode UI, click-to-place bookmarks on log lines. |
 | `src/export.js` | Copy, TXT/JSON download, auto-download on meeting exit, `formatOutput()`, session naming. |
 | `src/utils.js` | `escapeHtml`, event shielding to prevent Zoom's draggable caption box from stealing clicks. |
+| `src/copilot-relay.js` | Fire-and-forget POST of settled + pending lines to `http://localhost:7399/ingest`. No-ops if the copilot server is down. |
 
 ## Data flow
 
@@ -101,7 +124,26 @@ Zoom Redux store
        ├── extractChatLines() ──► ingestChatLines() ──┘  (immediate)
        │
        └── activeSharerMap() ──► share markers
+
+persistLog() / pollStore()
+       │
+       └── relayToCopilot() ──► localhost:7399 /ingest  (optional; pending + settled)
 ```
+
+## ZT Copilot
+
+Local companion for high-stakes meetings. Not part of the bookmarklet bundle.
+
+| Piece | Role |
+|-------|------|
+| `copilot/server.js` | Node 18+ `http` server. Ingest, SSE, brief, on-demand ask, transcript Q&A, standing directives, card feedback, repeat suppression, Anthropic prompt caching, disk backup, stale-feed detection. |
+| `copilot/public/index.html` | Suggestion-first page: On you list with copy-out, "do" vs. "say this" coaching cards with 👍 / 👎 / Mute topic, small-window prompter, ask box, collapsed transcript drawer, notifications + chime. |
+| `copilot/config.json` | `apiKey`, `model`, `effort`, `myName`, `suggestIntervalMs` (default 20s), `minNewWords` (30), `suggestCooldownMs` (45s), `repeatWindowMs` (10 min), `maxTokens`, `port`. |
+| `copilot/profile.md` | Optional personal context added to every prompt (gitignored). |
+
+Typical meeting flow: `npm run copilot` → open `http://localhost:7399` → paste brief → bookmarklet in Zoom → watch the second screen.
+
+The AI loop reads settled lines **and** in-flight pending captions (Zoom can take minutes to settle). It runs when enough new speech has arrived, or sooner when a chat message lands or someone says your name. Each card is coaching, not a recap: a **do** (how to handle the moment) and/or a line to **say** or ask out loud. Before a card is shown, the server drops repeats of a recent topic, near-identical rewordings, muted topics, and anything a standing directive excludes. Typing something like `stop mentioning the budget` in the ask box adds a standing directive for the rest of the meeting, and dismissing its card lifts it. The On you list at the top tracks what is directly on you and closes items as you answer them; Copy turns it into action items after the meeting. Shrink the window to 600px wide or less (for example, parked next to your camera) and it becomes a teleprompter: only the latest prompt, in large text, with everything else hidden. Settled lines are appended to `copilot/transcripts/` as they arrive. If the Zoom tab stops posting for ~30s, the page shows a feed-lost alarm.
 
 ### Log entry shape
 
@@ -137,7 +179,9 @@ The bookmarklet fetches the latest commit SHA from GitHub, then loads:
 https://cdn.jsdelivr.net/gh/heyccj/zoom-transcript@{sha}/zoom-transcript.js
 ```
 
-After `npm run build`, commit and push `zoom-transcript.js` to `main`.
+After `npm run build`, commit and push `zoom-transcript.js` to `main`. The bookmarklet always loads that `main` artifact — local `src/` changes do nothing in a real Zoom meeting until they are built and pushed.
+
+The copilot server is local-only. You do not deploy it. Restart `npm run copilot` after changing `copilot/server.js` or `config.json`.
 
 ## Known Zoom quirks
 
